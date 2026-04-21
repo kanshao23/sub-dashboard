@@ -1473,8 +1473,12 @@ function DetailDrawer({ sub, onClose, onUpdate, onDelete }) {
 
             <EditField label="价格">
               <div style={{display:'flex', gap:8}}>
-                <TextInput value={draft.price} onChange={v=>patch('price', v)} type="number" style={{flex:1}}/>
-                <SelectInput value={draft.cycle} onChange={v=>patch('cycle', v)} options={cycleOptions}/>
+                <div style={{flex:'1 1 0', minWidth:0}}>
+                  <TextInput value={draft.price} onChange={v=>patch('price', v)} type="number"/>
+                </div>
+                <div style={{flex:'0 0 140px'}}>
+                  <SelectInput value={draft.cycle} onChange={v=>patch('cycle', v)} options={cycleOptions}/>
+                </div>
               </div>
             </EditField>
 
@@ -1864,8 +1868,12 @@ function ManualStep({ prefillName, onBack, onClose, onSubmit }) {
         </EditField>
         <EditField label="价格 *">
           <div style={{display:'flex', gap:8}}>
-            <TextInput value={f.price} onChange={v=>patch('price', v)} type="number" style={{flex:1}}/>
-            <SelectInput value={f.cycle} onChange={v=>patch('cycle', v)} options={[['month','按月'],['year','按年']]}/>
+            <div style={{flex:'1 1 0', minWidth:0}}>
+              <TextInput value={f.price} onChange={v=>patch('price', v)} type="number"/>
+            </div>
+            <div style={{flex:'0 0 140px'}}>
+              <SelectInput value={f.cycle} onChange={v=>patch('cycle', v)} options={[['month','按月'],['year','按年']]}/>
+            </div>
           </div>
         </EditField>
         <EditField label="支付方式">
