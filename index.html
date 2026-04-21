@@ -634,7 +634,12 @@ function App() {
         {view==='calendar' && <CalendarView subs={subs} onPick={setSelected}/>}
         {view==='insights' && <InsightsView subs={subs} stats={stats}/>}
       </main>
-      {selected && <DetailDrawer sub={selected} onClose={()=>setSelected(null)} onUpdate={(u)=>{setSubs(subs.map(s=>s.id===u.id?u:s)); setSelected(u);}}/>}
+      {selected && <DetailDrawer
+        sub={selected}
+        onClose={()=>setSelected(null)}
+        onUpdate={(u)=>{setSubs(subs.map(s=>s.id===u.id?u:s)); setSelected(u);}}
+        onDelete={(id)=>{setSubs(subs.filter(s=>s.id!==id)); setUsedToday(prev=>{const n=new Set(prev); n.delete(id); return n;}); setSelected(null);}}
+      />}
       {showAdd && <AddModal onClose={()=>setShowAdd(false)} onAdd={addSub} existingNames={subs.map(s=>s.name)}/>}
     </div>
   );
@@ -1402,7 +1407,32 @@ function InsightsView({ subs, stats }) {
 }
 
 // ---- DETAIL DRAWER -----------------------------------------------
-function DetailDrawer({ sub, onClose, onUpdate }) {
+function DetailDrawer({ sub, onClose, onUpdate, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(sub);
+
+  useEffect(() => { setDraft(sub); setEditing(false); }, [sub.id]);
+
+  const patch = (k, v) => setDraft(d => ({...d, [k]: v}));
+  const save = () => {
+    const price = parseFloat(draft.price);
+    if (isNaN(price) || price < 0) { alert('价格需要是正数'); return; }
+    const usage = Math.max(0, Math.min(1, parseFloat(draft.usage) || 0));
+    onUpdate({...draft, price, usage});
+    setEditing(false);
+  };
+  const cancel = () => { setDraft(sub); setEditing(false); };
+  const remove = () => {
+    if (confirm(`确定取消订阅 ${sub.name}？此操作不可撤销。`)) onDelete(sub.id);
+  };
+
+  const catOptions = Object.keys(CAT_COLOR);
+  const methodOptions = ['Visa ••4821', 'Mastercard ••9911', 'Apple Pay', 'PayPal', 'Amex ••1002'];
+  const statusOptions = [['active','Active'],['paused','Paused'],['trial','Trial']];
+  const cycleOptions = [['month','按月'],['year','按年']];
+
+  const view = editing ? draft : sub;
+
   return (
     <div onClick={onClose} style={{
       position:'fixed', inset:0, background:'rgba(26,24,20,.4)',
@@ -1414,59 +1444,163 @@ function DetailDrawer({ sub, onClose, onUpdate }) {
       }}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24}}>
           <div style={{display:'flex', gap:14, alignItems:'center'}}>
-            <Badge name={sub.name} cat={sub.cat} size={48}/>
+            <Badge name={view.name} cat={view.cat} size={48}/>
             <div>
-              <div className="serif" style={{fontSize:28, lineHeight:1, marginBottom:2}}>{sub.name}</div>
-              <div style={{fontSize:12, color:'var(--ink-soft)'}}>{sub.vendor} · {sub.plan}</div>
+              <div className="serif" style={{fontSize:28, lineHeight:1, marginBottom:2}}>{view.name}</div>
+              <div style={{fontSize:12, color:'var(--ink-soft)'}}>{view.vendor} · {view.plan}</div>
             </div>
           </div>
           <button onClick={onClose} style={{fontSize:20, color:'var(--ink-faint)', padding:4}}>×</button>
         </div>
 
-        <div style={{background:'var(--bg)', borderRadius:10, padding:20, marginBottom:20}}>
-          <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:8}}>当前费用</div>
-          <div style={{display:'flex', alignItems:'baseline', gap:8}}>
-            <div className="serif" style={{fontSize:44, lineHeight:1}}>{fmt(sub.price)}</div>
-            <div style={{fontSize:14, color:'var(--ink-soft)'}}>/ {sub.cycle==='year'?'年':'月'}</div>
-          </div>
-          {sub.cycle==='year' && <div className="mono" style={{fontSize:11, color:'var(--ink-faint)', marginTop:4}}>≈ {fmt(sub.price/12)} / 月</div>}
-        </div>
+        {editing ? (
+          <>
+            <div style={{fontSize:11, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:12}}>编辑中</div>
 
-        <Field label="下次扣款" value={`${sub.next} · ${daysUntil(sub.next)} 天后`}/>
-        <Field label="支付方式" value={sub.method}/>
-        <Field label="开始日期" value={sub.started}/>
-        <Field label="已订阅" value={`${Math.floor((new Date('2026-04-22')-new Date(sub.started))/(365*86400000))} 年 ${Math.floor(((new Date('2026-04-22')-new Date(sub.started))/86400000 % 365)/30)} 个月`}/>
-        <Field label="累计支出" value={fmt(toMonthly(sub) * Math.floor((new Date('2026-04-22')-new Date(sub.started))/(30*86400000)))}/>
-        <Field label="分类" value={<CatPill cat={sub.cat}/>}/>
-        <Field label="共享" value={sub.shared ? '是' : '否'}/>
-        <Field label="状态" value={<StatusDot status={sub.status}/>}/>
+            <EditField label="方案名">
+              <TextInput value={draft.plan} onChange={v=>patch('plan', v)}/>
+            </EditField>
 
-        <div style={{marginTop:20, paddingTop:20, borderTop:'1px solid var(--line)'}}>
-          <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:10}}>使用率</div>
-          <div style={{display:'flex', alignItems:'center', gap:12, marginBottom:6}}>
-            <div style={{flex:1, height:8, background:'var(--line)', borderRadius:4, overflow:'hidden'}}>
-              <div style={{width:`${sub.usage*100}%`, height:'100%', background: sub.usage>0.7?'var(--positive)':sub.usage>0.4?'var(--warning)':'var(--danger)'}}/>
+            <EditField label="价格">
+              <div style={{display:'flex', gap:8}}>
+                <TextInput value={draft.price} onChange={v=>patch('price', v)} type="number" style={{flex:1}}/>
+                <SelectInput value={draft.cycle} onChange={v=>patch('cycle', v)} options={cycleOptions}/>
+              </div>
+            </EditField>
+
+            <EditField label="下次扣款">
+              <TextInput value={draft.next} onChange={v=>patch('next', v)} type="date"/>
+            </EditField>
+
+            <EditField label="开始日期">
+              <TextInput value={draft.started} onChange={v=>patch('started', v)} type="date"/>
+            </EditField>
+
+            <EditField label="支付方式">
+              <SelectInput value={draft.method} onChange={v=>patch('method', v)} options={methodOptions.map(m=>[m,m])}/>
+            </EditField>
+
+            <EditField label="分类">
+              <SelectInput value={draft.cat} onChange={v=>patch('cat', v)} options={catOptions.map(c=>[c,c])}/>
+            </EditField>
+
+            <EditField label="状态">
+              <SelectInput value={draft.status} onChange={v=>patch('status', v)} options={statusOptions}/>
+            </EditField>
+
+            <EditField label="使用率">
+              <div style={{display:'flex', gap:10, alignItems:'center'}}>
+                <input type="range" min="0" max="1" step="0.01" value={draft.usage}
+                  onChange={e=>patch('usage', parseFloat(e.target.value))}
+                  style={{flex:1, accentColor:'var(--accent)'}}/>
+                <div className="mono" style={{fontSize:13, minWidth:44, textAlign:'right'}}>{Math.round(draft.usage*100)}%</div>
+              </div>
+            </EditField>
+
+            <EditField label="共享">
+              <div style={{display:'flex', gap:6}}>
+                <PillToggle active={draft.shared} onClick={()=>patch('shared', true)} label="是"/>
+                <PillToggle active={!draft.shared} onClick={()=>patch('shared', false)} label="否"/>
+              </div>
+            </EditField>
+
+            <EditField label="备注">
+              <textarea value={draft.note || ''} onChange={e=>patch('note', e.target.value)}
+                rows={2} style={inputStyle()}/>
+            </EditField>
+
+            <div style={{display:'flex', gap:8, marginTop:24}}>
+              <button onClick={save} style={{flex:1, padding:'11px', background:'var(--ink)', color:'var(--surface)', borderRadius:8, fontSize:13, fontWeight:500}}>保存修改</button>
+              <button onClick={cancel} style={{flex:1, padding:'11px', background:'transparent', border:'1px solid var(--line)', borderRadius:8, fontSize:13, fontWeight:500, color:'var(--ink-soft)'}}>取消</button>
             </div>
-            <div className="mono" style={{fontSize:14, fontWeight:500, minWidth:50, textAlign:'right'}}>{Math.round(sub.usage*100)}%</div>
-          </div>
-          <div style={{fontSize:11, color:'var(--ink-soft)'}}>
-            {sub.usage>0.7 ? '使用充分，值得保留' : sub.usage>0.4 ? '中等使用率' : '使用率偏低，建议考虑取消'}
-          </div>
-        </div>
+          </>
+        ) : (
+          <>
+            <div style={{background:'var(--bg)', borderRadius:10, padding:20, marginBottom:20}}>
+              <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:8}}>当前费用</div>
+              <div style={{display:'flex', alignItems:'baseline', gap:8}}>
+                <div className="serif" style={{fontSize:44, lineHeight:1}}>{fmt(sub.price)}</div>
+                <div style={{fontSize:14, color:'var(--ink-soft)'}}>/ {sub.cycle==='year'?'年':'月'}</div>
+              </div>
+              {sub.cycle==='year' && <div className="mono" style={{fontSize:11, color:'var(--ink-faint)', marginTop:4}}>≈ {fmt(sub.price/12)} / 月</div>}
+            </div>
 
-        {sub.note && (
-          <div style={{marginTop:20, padding:14, background:'var(--bg)', borderRadius:8, borderLeft:'3px solid var(--ink-faint)'}}>
-            <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:6}}>备注</div>
-            <div style={{fontSize:13, color:'var(--ink-soft)'}}>{sub.note}</div>
-          </div>
+            <Field label="下次扣款" value={`${sub.next} · ${daysUntil(sub.next)} 天后`}/>
+            <Field label="支付方式" value={sub.method}/>
+            <Field label="开始日期" value={sub.started}/>
+            <Field label="已订阅" value={`${Math.floor((new Date('2026-04-22')-new Date(sub.started))/(365*86400000))} 年 ${Math.floor(((new Date('2026-04-22')-new Date(sub.started))/86400000 % 365)/30)} 个月`}/>
+            <Field label="累计支出" value={fmt(toMonthly(sub) * Math.floor((new Date('2026-04-22')-new Date(sub.started))/(30*86400000)))}/>
+            <Field label="分类" value={<CatPill cat={sub.cat}/>}/>
+            <Field label="共享" value={sub.shared ? '是' : '否'}/>
+            <Field label="状态" value={<StatusDot status={sub.status}/>}/>
+
+            <div style={{marginTop:20, paddingTop:20, borderTop:'1px solid var(--line)'}}>
+              <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:10}}>使用率</div>
+              <div style={{display:'flex', alignItems:'center', gap:12, marginBottom:6}}>
+                <div style={{flex:1, height:8, background:'var(--line)', borderRadius:4, overflow:'hidden'}}>
+                  <div style={{width:`${sub.usage*100}%`, height:'100%', background: sub.usage>0.7?'var(--positive)':sub.usage>0.4?'var(--warning)':'var(--danger)'}}/>
+                </div>
+                <div className="mono" style={{fontSize:14, fontWeight:500, minWidth:50, textAlign:'right'}}>{Math.round(sub.usage*100)}%</div>
+              </div>
+              <div style={{fontSize:11, color:'var(--ink-soft)'}}>
+                {sub.usage>0.7 ? '使用充分，值得保留' : sub.usage>0.4 ? '中等使用率' : '使用率偏低，建议考虑取消'}
+              </div>
+            </div>
+
+            {sub.note && (
+              <div style={{marginTop:20, padding:14, background:'var(--bg)', borderRadius:8, borderLeft:'3px solid var(--ink-faint)'}}>
+                <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:6}}>备注</div>
+                <div style={{fontSize:13, color:'var(--ink-soft)'}}>{sub.note}</div>
+              </div>
+            )}
+
+            <div style={{display:'flex', gap:8, marginTop:24}}>
+              <button onClick={()=>setEditing(true)} style={{flex:1, padding:'10px', background:'var(--ink)', color:'var(--surface)', borderRadius:8, fontSize:12, fontWeight:500}}>编辑订阅</button>
+              <button onClick={remove} style={{flex:1, padding:'10px', background:'transparent', color:'var(--danger)', border:'1px solid var(--danger)', borderRadius:8, fontSize:12, fontWeight:500}}>取消订阅</button>
+            </div>
+          </>
         )}
-
-        <div style={{display:'flex', gap:8, marginTop:24}}>
-          <button style={{flex:1, padding:'10px', background:'var(--ink)', color:'var(--surface)', borderRadius:8, fontSize:12, fontWeight:500}}>编辑订阅</button>
-          <button style={{flex:1, padding:'10px', background:'transparent', color:'var(--danger)', border:'1px solid var(--danger)', borderRadius:8, fontSize:12, fontWeight:500}}>取消订阅</button>
-        </div>
       </div>
     </div>
+  );
+}
+
+const inputStyle = () => ({
+  width:'100%', padding:'9px 12px',
+  background:'var(--bg)', border:'1px solid var(--line)',
+  borderRadius:7, fontSize:13, color:'var(--ink)', outline:'none',
+  fontFamily:'inherit', boxSizing:'border-box', resize:'vertical'
+});
+
+function EditField({ label, children }) {
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:6}}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function TextInput({ value, onChange, type='text', style={} }) {
+  return <input type={type} value={value} onChange={e=>onChange(e.target.value)} style={{...inputStyle(), ...style}}/>;
+}
+
+function SelectInput({ value, onChange, options }) {
+  return (
+    <select value={value} onChange={e=>onChange(e.target.value)} style={inputStyle()}>
+      {options.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
+  );
+}
+
+function PillToggle({ active, onClick, label }) {
+  return (
+    <button onClick={onClick} style={{
+      flex:1, padding:'8px 14px', borderRadius:7, fontSize:12, fontWeight:500,
+      background: active ? 'var(--accent-soft)' : 'var(--bg)',
+      border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+      color: active ? 'var(--accent)' : 'var(--ink-soft)'
+    }}>{label}</button>
   );
 }
 
