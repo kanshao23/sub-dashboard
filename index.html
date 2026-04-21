@@ -1237,29 +1237,39 @@ function ListView({ subs, setSubs, onPick, filter, setFilter, query, setQuery, s
 
 // ---- CALENDAR VIEW -----------------------------------------------
 function CalendarView({ subs, onPick }) {
-  const startMonth = new Date('2026-04-01');
+  const [cur, setCur] = useState({year: 2026, month: 4});
+  const {year, month} = cur;
+  const pad = n => String(n).padStart(2,'0');
+  const mStr = `${year}-${pad(month)}`;
+  const firstDay = new Date(year, month-1, 1).getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
   const days = [];
-  const firstDay = startMonth.getDay();
   for (let i=0; i<firstDay; i++) days.push(null);
-  for (let i=1; i<=30; i++) days.push(i);
+  for (let i=1; i<=daysInMonth; i++) days.push(i);
 
   const subsOnDay = (day) => {
     if (!day) return [];
-    const ymd = `2026-04-${String(day).padStart(2,'0')}`;
+    const ymd = `${mStr}-${pad(day)}`;
     return subs.filter(s => s.next===ymd && s.status!=='paused');
   };
 
-  const monthTotal = subs.filter(s => s.next.startsWith('2026-04') && s.status!=='paused').reduce((a,s)=>a+s.price,0);
+  const monthTotal = subs.filter(s => s.next.startsWith(mStr) && s.status!=='paused').reduce((a,s)=>a+s.price,0);
+
+  const prev = () => setCur(c => c.month===1 ? {year:c.year-1, month:12} : {year:c.year, month:c.month-1});
+  const next = () => setCur(c => c.month===12 ? {year:c.year+1, month:1} : {year:c.year, month:c.month+1});
+  const goToday = () => setCur({year: 2026, month: 4});
+
+  const cnMonths = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
 
   return (
     <div style={{padding:'32px 40px', maxHeight:'100vh', overflow:'auto'}}>
-      <Header title="Calendar" subtitle="按日期查看续订与扣款" date="2026 年 4 月"/>
+      <Header title="Calendar" subtitle="按日期查看续订与扣款" date={`${year} 年 ${cnMonths[month-1]}`}/>
 
       <div style={{display:'flex', justifyContent:'space-between', marginBottom:20, alignItems:'center'}}>
         <div style={{display:'flex', gap:4, background:'var(--surface)', border:'1px solid var(--line)', borderRadius:8, padding:3}}>
-          <button style={{padding:'6px 12px', borderRadius:5, fontSize:12, color:'var(--ink-soft)'}}>‹</button>
-          <div style={{padding:'6px 16px', fontSize:13, fontWeight:500}}>2026 · 四月</div>
-          <button style={{padding:'6px 12px', borderRadius:5, fontSize:12, color:'var(--ink-soft)'}}>›</button>
+          <button onClick={prev} style={{padding:'6px 12px', borderRadius:5, fontSize:12, color:'var(--ink-soft)'}}>‹</button>
+          <button onClick={goToday} style={{padding:'6px 16px', fontSize:13, fontWeight:500, color:'var(--ink)'}}>{year} · {cnMonths[month-1]}</button>
+          <button onClick={next} style={{padding:'6px 12px', borderRadius:5, fontSize:12, color:'var(--ink-soft)'}}>›</button>
         </div>
         <div className="mono" style={{fontSize:13, color:'var(--ink-soft)'}}>本月合计 <span style={{color:'var(--ink)', fontWeight:500}}>{fmt(monthTotal)}</span></div>
       </div>
@@ -1273,7 +1283,7 @@ function CalendarView({ subs, onPick }) {
         <div style={{display:'grid', gridTemplateColumns:'repeat(7, 1fr)'}}>
           {days.map((day, i) => {
             const dayS = subsOnDay(day);
-            const isToday = day===22;
+            const isToday = (year===2026 && month===4 && day===22);
             return (
               <div key={i} style={{
                 minHeight:110, padding:8,
@@ -1611,6 +1621,7 @@ function AddModal({ onClose, onAdd, existingNames }) {
   const [selectedTpl, setSelectedTpl] = useState(null);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [method, setMethod] = useState('Visa ••4821');
+  const [manual, setManual] = useState(false);
 
   const cats = ['all', ...Array.from(new Set(TEMPLATES.map(t=>t.cat)))];
 
@@ -1640,7 +1651,17 @@ function AddModal({ onClose, onAdd, existingNames }) {
         boxShadow:'0 30px 80px rgba(0,0,0,.3)',
         border:'1px solid var(--line)'
       }}>
-        {selectedTpl ? (
+        {manual ? (
+          <ManualStep
+            prefillName={query}
+            onBack={()=>setManual(false)}
+            onClose={onClose}
+            onSubmit={(form) => {
+              const tpl = { name: form.name, vendor: form.vendor || form.name, cat: form.cat, color: CAT_COLOR[form.cat] || '#6b6459', icon: form.name[0] };
+              const plan = { name: form.plan, price: form.price, cycle: form.cycle };
+              onAdd(tpl, plan, form.method);
+            }}/>
+        ) : selectedTpl ? (
           <ConfigStep tpl={selectedTpl} selectedPlan={selectedPlan} setSelectedPlan={setSelectedPlan}
             method={method} setMethod={setMethod}
             onBack={()=>{setSelectedTpl(null); setSelectedPlan(null);}}
@@ -1653,14 +1674,15 @@ function AddModal({ onClose, onAdd, existingNames }) {
             filtered={filtered} popular={popular}
             existingNames={existingNames}
             onPick={t=>{setSelectedTpl(t); setSelectedPlan(t.plans[Math.min(1, t.plans.length-1)]);}}
-            onClose={onClose}/>
+            onClose={onClose}
+            onManual={()=>setManual(true)}/>
         )}
       </div>
     </div>
   );
 }
 
-function BrowseStep({ query, setQuery, cat, setCat, cats, filtered, popular, existingNames, onPick, onClose }) {
+function BrowseStep({ query, setQuery, cat, setCat, cats, filtered, popular, existingNames, onPick, onClose, onManual }) {
   return (
     <>
       {/* Header */}
@@ -1724,7 +1746,7 @@ function BrowseStep({ query, setQuery, cat, setCat, cats, filtered, popular, exi
           <div style={{padding:'40px 20px', textAlign:'center', color:'var(--ink-faint)', fontSize:13}}>
             没有匹配的模板
             <div style={{marginTop:12}}>
-              <button style={{padding:'8px 16px', background:'var(--ink)', color:'var(--surface)', borderRadius:8, fontSize:12}}>
+              <button onClick={onManual} style={{padding:'8px 16px', background:'var(--ink)', color:'var(--surface)', borderRadius:8, fontSize:12}}>
                 手动添加 "{query}"
               </button>
             </div>
@@ -1733,7 +1755,7 @@ function BrowseStep({ query, setQuery, cat, setCat, cats, filtered, popular, exi
 
         <div style={{marginTop:20, padding:16, background:'var(--bg)', border:'1px dashed var(--line)', borderRadius:10, textAlign:'center'}}>
           <div style={{fontSize:12, color:'var(--ink-soft)', marginBottom:8}}>找不到？</div>
-          <button style={{padding:'7px 14px', background:'var(--surface)', border:'1px solid var(--line)', borderRadius:6, fontSize:12, fontWeight:500}}>
+          <button onClick={onManual} style={{padding:'7px 14px', background:'var(--surface)', border:'1px solid var(--line)', borderRadius:6, fontSize:12, fontWeight:500}}>
             手动添加自定义订阅
           </button>
         </div>
@@ -1792,6 +1814,76 @@ function TemplatePill({ tpl, existingNames, onPick }) {
       <LogoIcon slug={tpl.slug} color={tpl.color} fallback={tpl.icon} size={44}/>
       <div style={{fontSize:11, fontWeight:500, textAlign:'center', width:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{tpl.name}</div>
     </button>
+  );
+}
+
+function ManualStep({ prefillName, onBack, onClose, onSubmit }) {
+  const [f, setF] = useState({
+    name: prefillName || '',
+    vendor: '',
+    cat: 'Productivity',
+    plan: '',
+    price: '',
+    cycle: 'month',
+    method: 'Visa ••4821',
+    note: ''
+  });
+  const patch = (k, v) => setF(p => ({...p, [k]: v}));
+  const cats = Object.keys(CAT_COLOR);
+  const methods = ['Visa ••4821', 'Mastercard ••9911', 'Apple Pay', 'PayPal', 'Amex ••1002'];
+
+  const submit = () => {
+    if (!f.name.trim()) { alert('请输入订阅名'); return; }
+    const price = parseFloat(f.price);
+    if (isNaN(price) || price < 0) { alert('请输入有效价格'); return; }
+    onSubmit({...f, price, plan: f.plan.trim() || 'Standard'});
+  };
+
+  return (
+    <>
+      <div style={{padding:'24px 28px', borderBottom:'1px solid var(--line)', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+        <button onClick={onBack} style={{display:'flex', gap:8, alignItems:'center', fontSize:13, color:'var(--ink-soft)'}}>
+          <span>‹</span><span>从模板选</span>
+        </button>
+        <div className="serif" style={{fontSize:20}}>手动添加订阅</div>
+        <button onClick={onClose} style={{fontSize:22, color:'var(--ink-faint)'}}>×</button>
+      </div>
+
+      <div style={{flex:1, overflow:'auto', padding:'24px 40px'}}>
+        <EditField label="订阅名 *">
+          <TextInput value={f.name} onChange={v=>patch('name', v)}/>
+        </EditField>
+        <EditField label="服务商（可选）">
+          <TextInput value={f.vendor} onChange={v=>patch('vendor', v)}/>
+        </EditField>
+        <EditField label="分类">
+          <SelectInput value={f.cat} onChange={v=>patch('cat', v)} options={cats.map(c=>[c,c])}/>
+        </EditField>
+        <EditField label="方案名">
+          <TextInput value={f.plan} onChange={v=>patch('plan', v)}/>
+        </EditField>
+        <EditField label="价格 *">
+          <div style={{display:'flex', gap:8}}>
+            <TextInput value={f.price} onChange={v=>patch('price', v)} type="number" style={{flex:1}}/>
+            <SelectInput value={f.cycle} onChange={v=>patch('cycle', v)} options={[['month','按月'],['year','按年']]}/>
+          </div>
+        </EditField>
+        <EditField label="支付方式">
+          <SelectInput value={f.method} onChange={v=>patch('method', v)} options={methods.map(m=>[m,m])}/>
+        </EditField>
+        <EditField label="备注">
+          <textarea value={f.note} onChange={e=>patch('note', e.target.value)} rows={2} style={inputStyle()}/>
+        </EditField>
+      </div>
+
+      <div style={{padding:'16px 28px', borderTop:'1px solid var(--line)', background:'var(--bg)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:16}}>
+        <div style={{fontSize:12, color:'var(--ink-soft)'}}>* 为必填</div>
+        <button onClick={submit} style={{
+          padding:'10px 22px', background:'var(--ink)', color:'var(--surface)',
+          borderRadius:8, fontSize:13, fontWeight:500
+        }}>添加到 Ledger →</button>
+      </div>
+    </>
   );
 }
 
