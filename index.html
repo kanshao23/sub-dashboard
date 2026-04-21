@@ -1,0 +1,1945 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Substack — Subscription Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --surface: #faf8f3;
+    --ink: #1a1814;
+    --ink-soft: #6b6459;
+    --ink-faint: #a8a094;
+    --line: #e3ddd0;
+    --line-soft: #ece6d7;
+    --accent: #c9452c;
+    --accent-soft: #f4d9c9;
+    --positive: #3f6b3a;
+    --warning: #b87f1c;
+    --danger: #a83a28;
+    --shadow: 0 1px 0 rgba(26,24,20,.04), 0 12px 32px -18px rgba(26,24,20,.2);
+  }
+  .dark {
+    --bg: #15130f;
+    --surface: #1c1a15;
+    --ink: #f0ead8;
+    --ink-soft: #a59d8a;
+    --ink-faint: #6b6459;
+    --line: #2e2a22;
+    --line-soft: #25221c;
+    --accent: #e06849;
+    --accent-soft: #3a231a;
+    --positive: #8bbd7e;
+    --warning: #d4a63a;
+    --danger: #e06849;
+    --shadow: 0 1px 0 rgba(0,0,0,.4), 0 12px 32px -18px rgba(0,0,0,.6);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Geist', -apple-system, system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    text-wrap: pretty;
+  }
+  .serif { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; letter-spacing: -0.01em; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input, select { font-family: inherit; }
+  #root { min-height: 100vh; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect, useRef } = React;
+
+// ---- MOCK DATA -----------------------------------------------
+const SUBS = [
+  { id:1,  name:'Netflix',        vendor:'Netflix Inc.',     cat:'Entertainment', plan:'Premium 4K',     price:22.99, cycle:'month', started:'2019-03-12', next:'2026-05-03', method:'Visa ••4821', status:'active',  trial:false, shared:true,  usage:0.82, note:'家庭共享 4 人' },
+  { id:2,  name:'Spotify',        vendor:'Spotify AB',       cat:'Entertainment', plan:'Family',         price:16.99, cycle:'month', started:'2018-07-04', next:'2026-04-28', method:'Apple Pay',   status:'active',  trial:false, shared:true,  usage:0.91, note:'6 人家庭' },
+  { id:3,  name:'Adobe CC',       vendor:'Adobe Systems',    cat:'Productivity',  plan:'All Apps',       price:59.99, cycle:'month', started:'2021-01-19', next:'2026-05-11', method:'Mastercard ••9911', status:'active', trial:false, shared:false, usage:0.45, note:'主要用 Ps / Lr' },
+  { id:4,  name:'GitHub',         vendor:'GitHub Inc.',      cat:'Developer',     plan:'Pro',            price:4.00,  cycle:'month', started:'2017-11-02', next:'2026-05-02', method:'Visa ••4821', status:'active',  trial:false, shared:false, usage:0.99, note:'每日使用' },
+  { id:5,  name:'Notion',         vendor:'Notion Labs',      cat:'Productivity',  plan:'Plus',           price:10.00, cycle:'month', started:'2020-02-28', next:'2026-04-30', method:'Visa ••4821', status:'active',  trial:false, shared:true,  usage:0.76, note:'团队 workspace' },
+  { id:6,  name:'ChatGPT',        vendor:'OpenAI',           plan:'Pro',           cat:'AI',            price:200.00,cycle:'month', started:'2024-12-05', next:'2026-05-05', method:'Mastercard ••9911', status:'active', trial:false, shared:false, usage:0.88, note:'每日使用 o3' },
+  { id:7,  name:'Claude',         vendor:'Anthropic',        plan:'Max 20x',       cat:'AI',            price:100.00,cycle:'month', started:'2024-10-18', next:'2026-05-18', method:'Apple Pay',  status:'active', trial:false, shared:false, usage:0.95, note:'core 工作流' },
+  { id:8,  name:'Figma',          vendor:'Figma Inc.',       plan:'Professional',  cat:'Productivity',  price:15.00, cycle:'month', started:'2020-09-10', next:'2026-04-26', method:'Visa ••4821', status:'active',  trial:false, shared:true,  usage:0.62, note:'' },
+  { id:9,  name:'iCloud+',        vendor:'Apple Inc.',       plan:'2TB',           cat:'Cloud',         price:9.99,  cycle:'month', started:'2016-05-21', next:'2026-05-21', method:'Apple Pay',   status:'active',  trial:false, shared:true,  usage:0.71, note:'家庭共享' },
+  { id:10, name:'Dropbox',        vendor:'Dropbox Inc.',     plan:'Plus',          cat:'Cloud',         price:119.88,cycle:'year',  started:'2015-08-12', next:'2026-08-12', method:'Visa ••4821', status:'active',  trial:false, shared:false, usage:0.34, note:'考虑降级' },
+  { id:11, name:'Raycast Pro',    vendor:'Raycast',          plan:'Pro',           cat:'Productivity',  price:10.00, cycle:'month', started:'2023-02-14', next:'2026-05-14', method:'Mastercard ••9911', status:'active', trial:false, shared:false, usage:0.89, note:'' },
+  { id:12, name:'Linear',         vendor:'Linear',           plan:'Business',      cat:'Developer',     price:16.00, cycle:'month', started:'2022-06-30', next:'2026-04-30', method:'Visa ••4821', status:'active', trial:false, shared:true, usage:0.58, note:'小团队' },
+  { id:13, name:'1Password',      vendor:'1Password',        plan:'Family',        cat:'Security',      price:4.99,  cycle:'month', started:'2019-10-01', next:'2026-05-01', method:'Mastercard ••9911', status:'active', trial:false, shared:true, usage:0.97, note:'' },
+  { id:14, name:'New York Times', vendor:'The New York Times',plan:'All Access',   cat:'News',          price:25.00, cycle:'month', started:'2023-04-11', next:'2026-05-11', method:'Visa ••4821', status:'active', trial:false, shared:false, usage:0.40, note:'' },
+  { id:15, name:'Perplexity',     vendor:'Perplexity AI',    plan:'Pro',           cat:'AI',            price:20.00, cycle:'month', started:'2024-03-22', next:'2026-05-22', method:'Apple Pay',   status:'active', trial:false, shared:false, usage:0.52, note:'' },
+  { id:16, name:'Cursor',         vendor:'Anysphere',        plan:'Pro',           cat:'Developer',     price:20.00, cycle:'month', started:'2024-01-08', next:'2026-05-08', method:'Visa ••4821', status:'active', trial:false, shared:false, usage:0.93, note:'' },
+  { id:17, name:'YouTube Premium',vendor:'Google',           plan:'Family',        cat:'Entertainment', price:22.99, cycle:'month', started:'2021-08-15', next:'2026-04-29', method:'Mastercard ••9911', status:'active', trial:false, shared:true, usage:0.68, note:'' },
+  { id:18, name:'Apple One',      vendor:'Apple Inc.',       plan:'Premier',       cat:'Bundle',        price:37.95, cycle:'month', started:'2021-10-25', next:'2026-05-25', method:'Apple Pay',   status:'active', trial:false, shared:true, usage:0.71, note:'' },
+  { id:19, name:'Midjourney',     vendor:'Midjourney',       plan:'Standard',      cat:'AI',            price:30.00, cycle:'month', started:'2023-06-04', next:'2026-05-04', method:'Mastercard ••9911', status:'paused', trial:false, shared:false, usage:0.12, note:'暂停中' },
+  { id:20, name:'HBO Max',        vendor:'WBD',              plan:'Ad-Free',       cat:'Entertainment', price:15.99, cycle:'month', started:'2022-01-10', next:'2026-05-10', method:'Visa ••4821', status:'trial', trial:true, shared:false, usage:0.22, note:'试用期 5 天后扣款' }
+];
+
+// ---- TEMPLATE LIBRARY -----------------------------------------------
+const TEMPLATES = [
+  // Streaming / Entertainment
+  { name:'Netflix', vendor:'Netflix Inc.', cat:'Entertainment', icon:'N', color:'#E50914', plans:[
+    {name:'Standard with ads', price:7.99, cycle:'month'},
+    {name:'Standard', price:17.99, cycle:'month'},
+    {name:'Premium 4K', price:24.99, cycle:'month'}
+  ]},
+  { name:'Disney+', vendor:'Disney', cat:'Entertainment', icon:'D', color:'#0A1A7E', plans:[
+    {name:'Basic with ads', price:9.99, cycle:'month'},
+    {name:'Premium', price:15.99, cycle:'month'},
+    {name:'Premium yearly', price:159.99, cycle:'year'}
+  ]},
+  { name:'HBO Max', vendor:'WBD', cat:'Entertainment', icon:'H', color:'#9b28fe', plans:[
+    {name:'With ads', price:9.99, cycle:'month'},
+    {name:'Ad-Free', price:16.99, cycle:'month'},
+    {name:'Ultimate 4K', price:20.99, cycle:'month'}
+  ]},
+  { name:'Hulu', vendor:'Disney', cat:'Entertainment', icon:'H', color:'#1CE783', plans:[
+    {name:'With ads', price:9.99, cycle:'month'},
+    {name:'No ads', price:18.99, cycle:'month'},
+    {name:'+ Live TV', price:82.99, cycle:'month'}
+  ]},
+  { name:'Apple TV+', vendor:'Apple Inc.', cat:'Entertainment', icon:'􀀁', color:'#000', plans:[
+    {name:'Monthly', price:9.99, cycle:'month'},
+    {name:'Yearly', price:99.00, cycle:'year'}
+  ]},
+  { name:'Prime Video', vendor:'Amazon', cat:'Entertainment', icon:'P', color:'#00A8E1', plans:[
+    {name:'Standalone', price:8.99, cycle:'month'},
+    {name:'With Prime', price:139.00, cycle:'year'}
+  ]},
+  { name:'Paramount+', vendor:'Paramount', cat:'Entertainment', icon:'P', color:'#0064FF', plans:[
+    {name:'Essential', price:7.99, cycle:'month'},
+    {name:'With Showtime', price:12.99, cycle:'month'}
+  ]},
+  { name:'Peacock', vendor:'NBCU', cat:'Entertainment', icon:'P', color:'#FF7A00', plans:[
+    {name:'Premium', price:7.99, cycle:'month'},
+    {name:'Premium Plus', price:13.99, cycle:'month'}
+  ]},
+  { name:'YouTube Premium', vendor:'Google', cat:'Entertainment', icon:'Y', color:'#FF0000', plans:[
+    {name:'Individual', price:13.99, cycle:'month'},
+    {name:'Family', price:22.99, cycle:'month'},
+    {name:'Student', price:7.99, cycle:'month'}
+  ]},
+
+  // Music
+  { name:'Spotify', vendor:'Spotify AB', cat:'Music', icon:'S', color:'#1DB954', plans:[
+    {name:'Individual', price:11.99, cycle:'month'},
+    {name:'Duo', price:16.99, cycle:'month'},
+    {name:'Family', price:19.99, cycle:'month'},
+    {name:'Student', price:5.99, cycle:'month'}
+  ]},
+  { name:'Apple Music', vendor:'Apple Inc.', cat:'Music', icon:'􀑪', color:'#FA243C', plans:[
+    {name:'Individual', price:10.99, cycle:'month'},
+    {name:'Family', price:16.99, cycle:'month'},
+    {name:'Student', price:5.99, cycle:'month'}
+  ]},
+  { name:'Tidal', vendor:'Tidal', cat:'Music', icon:'T', color:'#000', plans:[
+    {name:'HiFi', price:10.99, cycle:'month'},
+    {name:'HiFi Plus', price:19.99, cycle:'month'}
+  ]},
+  { name:'YouTube Music', vendor:'Google', cat:'Music', icon:'Y', color:'#FF0033', plans:[
+    {name:'Individual', price:10.99, cycle:'month'},
+    {name:'Family', price:16.99, cycle:'month'}
+  ]},
+
+  // AI
+  { name:'ChatGPT', vendor:'OpenAI', cat:'AI', icon:'G', color:'#10A37F', plans:[
+    {name:'Plus', price:20.00, cycle:'month'},
+    {name:'Pro', price:200.00, cycle:'month'},
+    {name:'Team', price:30.00, cycle:'month'}
+  ]},
+  { name:'Claude', vendor:'Anthropic', cat:'AI', icon:'C', color:'#D97757', plans:[
+    {name:'Pro', price:20.00, cycle:'month'},
+    {name:'Max 5x', price:100.00, cycle:'month'},
+    {name:'Max 20x', price:200.00, cycle:'month'}
+  ]},
+  { name:'Perplexity', vendor:'Perplexity AI', cat:'AI', icon:'P', color:'#20808D', plans:[
+    {name:'Pro', price:20.00, cycle:'month'},
+    {name:'Pro yearly', price:200.00, cycle:'year'}
+  ]},
+  { name:'Midjourney', vendor:'Midjourney', cat:'AI', icon:'M', color:'#4A4A4A', plans:[
+    {name:'Basic', price:10.00, cycle:'month'},
+    {name:'Standard', price:30.00, cycle:'month'},
+    {name:'Pro', price:60.00, cycle:'month'},
+    {name:'Mega', price:120.00, cycle:'month'}
+  ]},
+  { name:'Gemini Advanced', vendor:'Google', cat:'AI', icon:'G', color:'#4285F4', plans:[
+    {name:'AI Pro', price:19.99, cycle:'month'},
+    {name:'AI Ultra', price:249.99, cycle:'month'}
+  ]},
+  { name:'Cursor', vendor:'Anysphere', cat:'AI', icon:'C', color:'#000', plans:[
+    {name:'Pro', price:20.00, cycle:'month'},
+    {name:'Business', price:40.00, cycle:'month'}
+  ]},
+  { name:'v0 by Vercel', vendor:'Vercel', cat:'AI', icon:'v', color:'#000', plans:[
+    {name:'Premium', price:20.00, cycle:'month'},
+    {name:'Team', price:30.00, cycle:'month'}
+  ]},
+
+  // Productivity
+  { name:'Notion', vendor:'Notion Labs', cat:'Productivity', icon:'N', color:'#000', plans:[
+    {name:'Plus', price:10.00, cycle:'month'},
+    {name:'Business', price:18.00, cycle:'month'},
+    {name:'AI add-on', price:10.00, cycle:'month'}
+  ]},
+  { name:'Linear', vendor:'Linear', cat:'Productivity', icon:'L', color:'#5E6AD2', plans:[
+    {name:'Basic', price:8.00, cycle:'month'},
+    {name:'Business', price:16.00, cycle:'month'}
+  ]},
+  { name:'Figma', vendor:'Figma Inc.', cat:'Productivity', icon:'F', color:'#F24E1E', plans:[
+    {name:'Professional', price:15.00, cycle:'month'},
+    {name:'Organization', price:45.00, cycle:'month'}
+  ]},
+  { name:'Raycast Pro', vendor:'Raycast', cat:'Productivity', icon:'R', color:'#FF6363', plans:[
+    {name:'Pro', price:10.00, cycle:'month'},
+    {name:'Pro + AI', price:20.00, cycle:'month'}
+  ]},
+  { name:'Superhuman', vendor:'Superhuman', cat:'Productivity', icon:'S', color:'#000', plans:[
+    {name:'Starter', price:30.00, cycle:'month'},
+    {name:'Business', price:40.00, cycle:'month'}
+  ]},
+  { name:'Todoist', vendor:'Doist', cat:'Productivity', icon:'T', color:'#E44332', plans:[
+    {name:'Pro', price:5.00, cycle:'month'},
+    {name:'Business', price:8.00, cycle:'month'}
+  ]},
+  { name:'Obsidian Sync', vendor:'Obsidian', cat:'Productivity', icon:'O', color:'#7C3AED', plans:[
+    {name:'Sync', price:5.00, cycle:'month'},
+    {name:'Publish', price:10.00, cycle:'month'}
+  ]},
+
+  // Developer
+  { name:'GitHub', vendor:'GitHub Inc.', cat:'Developer', icon:'G', color:'#24292e', plans:[
+    {name:'Pro', price:4.00, cycle:'month'},
+    {name:'Team', price:4.00, cycle:'month'},
+    {name:'Copilot Pro', price:10.00, cycle:'month'}
+  ]},
+  { name:'Vercel', vendor:'Vercel', cat:'Developer', icon:'V', color:'#000', plans:[
+    {name:'Pro', price:20.00, cycle:'month'},
+    {name:'Enterprise', price:300.00, cycle:'month'}
+  ]},
+  { name:'JetBrains All Products', vendor:'JetBrains', cat:'Developer', icon:'J', color:'#000', plans:[
+    {name:'Individual', price:24.90, cycle:'month'},
+    {name:'Organization', price:77.90, cycle:'month'},
+    {name:'Individual yearly', price:289.00, cycle:'year'}
+  ]},
+  { name:'Cloudflare Pro', vendor:'Cloudflare', cat:'Developer', icon:'C', color:'#F38020', plans:[
+    {name:'Pro', price:25.00, cycle:'month'},
+    {name:'Business', price:250.00, cycle:'month'}
+  ]},
+  { name:'Railway', vendor:'Railway', cat:'Developer', icon:'R', color:'#000', plans:[
+    {name:'Hobby', price:5.00, cycle:'month'},
+    {name:'Pro', price:20.00, cycle:'month'}
+  ]},
+
+  // Cloud
+  { name:'iCloud+', vendor:'Apple Inc.', cat:'Cloud', icon:'􀒲', color:'#0080ff', plans:[
+    {name:'50GB', price:0.99, cycle:'month'},
+    {name:'200GB', price:2.99, cycle:'month'},
+    {name:'2TB', price:9.99, cycle:'month'},
+    {name:'6TB', price:29.99, cycle:'month'},
+    {name:'12TB', price:59.99, cycle:'month'}
+  ]},
+  { name:'Google One', vendor:'Google', cat:'Cloud', icon:'G', color:'#4285F4', plans:[
+    {name:'100GB', price:1.99, cycle:'month'},
+    {name:'200GB', price:2.99, cycle:'month'},
+    {name:'2TB', price:9.99, cycle:'month'},
+    {name:'AI Premium', price:19.99, cycle:'month'}
+  ]},
+  { name:'Dropbox', vendor:'Dropbox Inc.', cat:'Cloud', icon:'D', color:'#0061FF', plans:[
+    {name:'Plus', price:11.99, cycle:'month'},
+    {name:'Essentials', price:19.99, cycle:'month'},
+    {name:'Plus yearly', price:119.88, cycle:'year'}
+  ]},
+  { name:'OneDrive', vendor:'Microsoft', cat:'Cloud', icon:'O', color:'#0078D4', plans:[
+    {name:'100GB', price:1.99, cycle:'month'},
+    {name:'Microsoft 365 Personal', price:9.99, cycle:'month'},
+    {name:'Microsoft 365 Family', price:12.99, cycle:'month'}
+  ]},
+
+  // Design
+  { name:'Adobe CC', vendor:'Adobe Systems', cat:'Design', icon:'A', color:'#FF0000', plans:[
+    {name:'Photography', price:9.99, cycle:'month'},
+    {name:'Single App', price:22.99, cycle:'month'},
+    {name:'All Apps', price:59.99, cycle:'month'},
+    {name:'Pro Edition', price:69.99, cycle:'month'}
+  ]},
+  { name:'Framer', vendor:'Framer', cat:'Design', icon:'F', color:'#000', plans:[
+    {name:'Mini', price:5.00, cycle:'month'},
+    {name:'Basic', price:15.00, cycle:'month'},
+    {name:'Pro', price:25.00, cycle:'month'}
+  ]},
+  { name:'Canva Pro', vendor:'Canva', cat:'Design', icon:'C', color:'#00C4CC', plans:[
+    {name:'Pro', price:14.99, cycle:'month'},
+    {name:'Pro yearly', price:119.99, cycle:'year'}
+  ]},
+
+  // News
+  { name:'New York Times', vendor:'The NYT', cat:'News', icon:'T', color:'#000', plans:[
+    {name:'Basic digital', price:9.99, cycle:'month'},
+    {name:'All Access', price:25.00, cycle:'month'},
+    {name:'Home Delivery', price:37.40, cycle:'month'}
+  ]},
+  { name:'WSJ', vendor:'Dow Jones', cat:'News', icon:'W', color:'#0274B6', plans:[
+    {name:'Digital', price:19.50, cycle:'month'}
+  ]},
+  { name:'The Economist', vendor:'Economist', cat:'News', icon:'E', color:'#E3120B', plans:[
+    {name:'Digital', price:16.00, cycle:'month'},
+    {name:'Print + Digital', price:24.00, cycle:'month'}
+  ]},
+  { name:'Bloomberg', vendor:'Bloomberg', cat:'News', icon:'B', color:'#000', plans:[
+    {name:'Digital', price:34.99, cycle:'month'}
+  ]},
+  { name:'Medium', vendor:'Medium', cat:'News', icon:'M', color:'#000', plans:[
+    {name:'Member', price:5.00, cycle:'month'},
+    {name:'Member yearly', price:50.00, cycle:'year'}
+  ]},
+
+  // Security
+  { name:'1Password', vendor:'1Password', cat:'Security', icon:'1', color:'#0572EC', plans:[
+    {name:'Individual', price:2.99, cycle:'month'},
+    {name:'Family', price:4.99, cycle:'month'},
+    {name:'Business', price:7.99, cycle:'month'}
+  ]},
+  { name:'NordVPN', vendor:'Nord', cat:'Security', icon:'N', color:'#4687FF', plans:[
+    {name:'Basic', price:12.99, cycle:'month'},
+    {name:'Plus', price:13.99, cycle:'month'},
+    {name:'Plus yearly', price:71.76, cycle:'year'}
+  ]},
+  { name:'ExpressVPN', vendor:'Express', cat:'Security', icon:'E', color:'#DA3940', plans:[
+    {name:'Monthly', price:12.95, cycle:'month'},
+    {name:'Yearly', price:99.95, cycle:'year'}
+  ]},
+
+  // Fitness
+  { name:'Apple Fitness+', vendor:'Apple Inc.', cat:'Fitness', icon:'􀎮', color:'#FA2D48', plans:[
+    {name:'Monthly', price:9.99, cycle:'month'},
+    {name:'Yearly', price:79.99, cycle:'year'}
+  ]},
+  { name:'Peloton', vendor:'Peloton', cat:'Fitness', icon:'P', color:'#000', plans:[
+    {name:'App One', price:12.99, cycle:'month'},
+    {name:'App+', price:24.00, cycle:'month'}
+  ]},
+  { name:'Strava', vendor:'Strava', cat:'Fitness', icon:'S', color:'#FC4C02', plans:[
+    {name:'Monthly', price:11.99, cycle:'month'},
+    {name:'Yearly', price:79.99, cycle:'year'}
+  ]},
+  { name:'Whoop', vendor:'Whoop', cat:'Fitness', icon:'W', color:'#000', plans:[
+    {name:'One yearly', price:239.00, cycle:'year'},
+    {name:'Peak yearly', price:299.00, cycle:'year'}
+  ]},
+
+  // Gaming
+  { name:'Xbox Game Pass', vendor:'Microsoft', cat:'Gaming', icon:'X', color:'#107C10', plans:[
+    {name:'Core', price:9.99, cycle:'month'},
+    {name:'Standard', price:14.99, cycle:'month'},
+    {name:'Ultimate', price:19.99, cycle:'month'}
+  ]},
+  { name:'PlayStation Plus', vendor:'Sony', cat:'Gaming', icon:'P', color:'#003791', plans:[
+    {name:'Essential', price:9.99, cycle:'month'},
+    {name:'Extra', price:14.99, cycle:'month'},
+    {name:'Premium', price:17.99, cycle:'month'}
+  ]},
+  { name:'Nintendo Switch Online', vendor:'Nintendo', cat:'Gaming', icon:'N', color:'#E60012', plans:[
+    {name:'Individual yearly', price:19.99, cycle:'year'},
+    {name:'Expansion Pack', price:49.99, cycle:'year'}
+  ]},
+
+  // Learning
+  { name:'Duolingo Super', vendor:'Duolingo', cat:'Learning', icon:'D', color:'#58CC02', plans:[
+    {name:'Super', price:13.99, cycle:'month'},
+    {name:'Super yearly', price:83.99, cycle:'year'},
+    {name:'Max', price:29.99, cycle:'month'}
+  ]},
+  { name:'MasterClass', vendor:'MasterClass', cat:'Learning', icon:'M', color:'#000', plans:[
+    {name:'Individual', price:120.00, cycle:'year'},
+    {name:'Duo', price:180.00, cycle:'year'}
+  ]},
+  { name:'Audible', vendor:'Amazon', cat:'Learning', icon:'A', color:'#F8991D', plans:[
+    {name:'Plus', price:7.95, cycle:'month'},
+    {name:'Premium Plus', price:14.95, cycle:'month'}
+  ]},
+  { name:'Kindle Unlimited', vendor:'Amazon', cat:'Learning', icon:'K', color:'#232F3E', plans:[
+    {name:'Monthly', price:11.99, cycle:'month'},
+    {name:'Yearly', price:119.88, cycle:'year'}
+  ]},
+
+  // Communication
+  { name:'Zoom Pro', vendor:'Zoom', cat:'Communication', icon:'Z', color:'#0B5CFF', plans:[
+    {name:'Pro', price:15.99, cycle:'month'},
+    {name:'Business', price:21.99, cycle:'month'}
+  ]},
+  { name:'Discord Nitro', vendor:'Discord', cat:'Communication', icon:'D', color:'#5865F2', plans:[
+    {name:'Basic', price:2.99, cycle:'month'},
+    {name:'Full', price:9.99, cycle:'month'}
+  ]},
+
+  // Bundle
+  { name:'Apple One', vendor:'Apple Inc.', cat:'Bundle', icon:'􀀁', color:'#000', plans:[
+    {name:'Individual', price:19.95, cycle:'month'},
+    {name:'Family', price:25.95, cycle:'month'},
+    {name:'Premier', price:37.95, cycle:'month'}
+  ]},
+  { name:'Microsoft 365', vendor:'Microsoft', cat:'Bundle', icon:'M', color:'#0078D4', plans:[
+    {name:'Personal', price:9.99, cycle:'month'},
+    {name:'Family', price:12.99, cycle:'month'}
+  ]}
+];
+
+const CAT_COLOR = {
+  'AI': '#c9452c',
+  'Entertainment': '#8a4fff',
+  'Productivity': '#2c7bc9',
+  'Developer': '#2c8572',
+  'Cloud': '#b87f1c',
+  'News': '#6b6459',
+  'Security': '#3f6b3a',
+  'Bundle': '#9c4a7f',
+  'Music': '#d94877',
+  'Design': '#e85c2b',
+  'Fitness': '#2b9e6f',
+  'Gaming': '#5b3ec9',
+  'Learning': '#c98f2b',
+  'Communication': '#2b8fc9'
+};
+
+// ---- SLUG MAP (simpleicons.org slugs) -----------------------------
+const SLUG_MAP = {
+  'Netflix':'netflix','Disney+':'disneyplus','HBO Max':'max','Hulu':'hulu',
+  'Apple TV+':'appletv','Prime Video':'primevideo','Paramount+':'paramountplus',
+  'Peacock':'peacock','YouTube Premium':'youtube',
+  'Spotify':'spotify','Apple Music':'applemusic','Tidal':'tidal','YouTube Music':'youtubemusic',
+  'ChatGPT':'openai','Claude':'anthropic','Perplexity':'perplexity',
+  'Midjourney':'midjourney','Gemini Advanced':'googlegemini',
+  'Cursor':'cursor','v0 by Vercel':'vercel',
+  'Notion':'notion','Linear':'linear','Figma':'figma','Raycast Pro':'raycast',
+  'Superhuman':'superhuman','Todoist':'todoist','Obsidian Sync':'obsidian',
+  'GitHub':'github','Vercel':'vercel','JetBrains All Products':'jetbrains',
+  'Cloudflare Pro':'cloudflare','Railway':'railway',
+  'iCloud+':'icloud','Google One':'googledrive','Dropbox':'dropbox','OneDrive':'microsoftonedrive',
+  'Adobe CC':'adobecreativecloud','Framer':'framer','Canva Pro':'canva',
+  'New York Times':'nytimes','WSJ':'wsj','The Economist':'theeconomist','Bloomberg':'bloomberg','Medium':'medium',
+  '1Password':'1password','NordVPN':'nordvpn','ExpressVPN':'expressvpn',
+  'Apple Fitness+':'apple','Peloton':'peloton','Strava':'strava','Whoop':'whoop',
+  'Xbox Game Pass':'xbox','PlayStation Plus':'playstation','Nintendo Switch Online':'nintendoswitch',
+  'Duolingo Super':'duolingo','MasterClass':'masterclass','Audible':'audible','Kindle Unlimited':'amazonkindle',
+  'Zoom Pro':'zoom','Discord Nitro':'discord',
+  'Apple One':'apple','Microsoft 365':'microsoft365'
+};
+
+TEMPLATES.forEach(t => { if (SLUG_MAP[t.name]) t.slug = SLUG_MAP[t.name]; });
+
+const BRAND_LOOKUP = {};
+TEMPLATES.forEach(t => { BRAND_LOOKUP[t.name] = { slug: t.slug, color: t.color, icon: t.icon }; });
+// ---- HELPERS -----------------------------------------------
+const fmt = n => (n<0?'-':'') + '$' + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const toMonthly = s => s.cycle==='year' ? s.price/12 : s.price;
+const toYearly = s => s.cycle==='year' ? s.price : s.price*12;
+const daysUntil = (d) => {
+  const today = new Date('2026-04-22');
+  const t = new Date(d);
+  return Math.round((t-today)/86400000);
+};
+
+// ---- STORAGE -----------------------------------------------
+const STORAGE_KEY = 'substack-v1';
+const TODAY_STR = '2026-04-22';
+
+function loadStore() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveStore(data) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { console.warn('save failed', e); }
+}
+
+// ---- STATS -----------------------------------------------
+function useStats(subs) {
+  return useMemo(() => {
+    const active = subs.filter(s => s.status==='active' || s.status==='trial');
+    const monthly = active.reduce((a,s)=>a+toMonthly(s),0);
+    const yearly = active.reduce((a,s)=>a+toYearly(s),0);
+    const byCat = {};
+    active.forEach(s => {
+      byCat[s.cat] = (byCat[s.cat]||0) + toMonthly(s);
+    });
+    const upcoming = subs
+      .filter(s => s.status!=='paused')
+      .map(s => ({...s, days: daysUntil(s.next)}))
+      .filter(s => s.days>=0 && s.days<=30)
+      .sort((a,b)=>a.days-b.days);
+    const lowUsage = active.filter(s => s.usage<0.4).sort((a,b)=>a.usage-b.usage);
+    return { monthly, yearly, byCat, upcoming, lowUsage, count: active.length };
+  }, [subs]);
+}
+
+// ---- APP -----------------------------------------------
+function App() {
+  const initial = useMemo(() => loadStore(), []);
+  const [dark, setDark] = useState(initial?.dark ?? false);
+  const [view, setView] = useState('today');
+  const [subs, setSubs] = useState(initial?.subs ?? SUBS);
+  const [selected, setSelected] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('next');
+  const [usedToday, setUsedToday] = useState(() => {
+    const stored = initial?.usedToday;
+    if (stored?.date === TODAY_STR && Array.isArray(stored.ids)) return new Set(stored.ids);
+    return new Set([4, 7, 13, 16]);
+  });
+  const [showAdd, setShowAdd] = useState(false);
+  const [savedAt, setSavedAt] = useState(initial ? 'loaded' : 'new');
+  const fileInputRef = useRef(null);
+
+  // auto save on any change
+  useEffect(() => {
+    saveStore({
+      version: 1,
+      subs,
+      dark,
+      usedToday: { date: TODAY_STR, ids: [...usedToday] },
+      savedAt: new Date().toISOString()
+    });
+    setSavedAt(new Date().toISOString());
+  }, [subs, dark, usedToday]);
+
+  const exportData = () => {
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      subs, dark,
+      usedToday: { date: TODAY_STR, ids: [...usedToday] }
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `substack-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!Array.isArray(data.subs)) throw new Error('invalid');
+        if (!confirm(`导入 ${data.subs.length} 条订阅？当前数据会被覆盖。`)) return;
+        setSubs(data.subs);
+        if (typeof data.dark === 'boolean') setDark(data.dark);
+        if (data.usedToday?.date === TODAY_STR && Array.isArray(data.usedToday.ids)) {
+          setUsedToday(new Set(data.usedToday.ids));
+        }
+      } catch {
+        alert('文件格式错误，请选择 substack 导出的 JSON');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const resetData = () => {
+    if (!confirm('恢复演示数据？当前所有订阅会被清空。')) return;
+    setSubs(SUBS);
+    setUsedToday(new Set([4, 7, 13, 16]));
+  };
+
+  const clearAll = () => {
+    if (!confirm('清空所有订阅？此操作不可撤销。')) return;
+    setSubs([]);
+    setUsedToday(new Set());
+  };
+
+  const addSub = (tpl, plan, method) => {
+    const today = new Date('2026-04-22');
+    const next = new Date(today);
+    if (plan.cycle==='year') next.setFullYear(next.getFullYear()+1);
+    else next.setMonth(next.getMonth()+1);
+    const nextStr = next.toISOString().slice(0,10);
+    const newSub = {
+      id: Math.max(...subs.map(s=>s.id))+1,
+      name: tpl.name,
+      vendor: tpl.vendor,
+      cat: tpl.cat,
+      plan: plan.name,
+      price: plan.price,
+      cycle: plan.cycle,
+      started: '2026-04-22',
+      next: nextStr,
+      method: method,
+      status: 'active',
+      trial: false,
+      shared: false,
+      usage: 0.5,
+      note: '刚添加'
+    };
+    setSubs([...subs, newSub]);
+    setShowAdd(false);
+  };
+
+  const toggleUsed = (id) => {
+    setUsedToday(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
+  useEffect(() => {
+    document.body.classList.toggle('dark', dark);
+  }, [dark]);
+
+  const stats = useStats(subs);
+
+  return (
+    <div style={{display:'grid', gridTemplateColumns:'220px 1fr', minHeight:'100vh'}}>
+      <Sidebar view={view} setView={setView} dark={dark} setDark={setDark} stats={stats}
+        onAdd={()=>setShowAdd(true)}
+        onExport={exportData}
+        onImportClick={()=>fileInputRef.current?.click()}
+        onReset={resetData}
+        onClearAll={clearAll}
+        savedAt={savedAt}/>
+      <input ref={fileInputRef} type="file" accept=".json,application/json" onChange={importData} style={{display:'none'}}/>
+      <main style={{background:'var(--bg)', overflow:'hidden'}}>
+        {view==='today' && <TodayView subs={subs} stats={stats} onPick={setSelected} usedToday={usedToday} toggleUsed={toggleUsed}/>}
+        {view==='overview' && <Overview subs={subs} stats={stats} onPick={setSelected}/>}
+        {view==='list' && <ListView subs={subs} setSubs={setSubs} onPick={setSelected} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} sort={sort} setSort={setSort} onAdd={()=>setShowAdd(true)}/>}
+        {view==='calendar' && <CalendarView subs={subs} onPick={setSelected}/>}
+        {view==='insights' && <InsightsView subs={subs} stats={stats}/>}
+      </main>
+      {selected && <DetailDrawer sub={selected} onClose={()=>setSelected(null)} onUpdate={(u)=>{setSubs(subs.map(s=>s.id===u.id?u:s)); setSelected(u);}}/>}
+      {showAdd && <AddModal onClose={()=>setShowAdd(false)} onAdd={addSub} existingNames={subs.map(s=>s.name)}/>}
+    </div>
+  );
+}
+
+// ---- SIDEBAR -----------------------------------------------
+function Sidebar({ view, setView, dark, setDark, stats, onAdd, onExport, onImportClick, onReset, onClearAll, savedAt }) {
+  const items = [
+    {k:'today', n:'Today', s:'00'},
+    {k:'overview', n:'Overview', s:'01'},
+    {k:'list', n:'Ledger', s:'02'},
+    {k:'calendar', n:'Calendar', s:'03'},
+    {k:'insights', n:'Insights', s:'04'}
+  ];
+  return (
+    <aside style={{
+      background:'var(--surface)',
+      borderRight:'1px solid var(--line)',
+      padding:'28px 20px',
+      display:'flex',
+      flexDirection:'column',
+      gap:32,
+      position:'sticky',
+      top:0,
+      height:'100vh'
+    }}>
+      <div>
+        <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:4}}>
+          <div style={{width:28, height:28, borderRadius:8, background:'var(--accent)', display:'grid', placeItems:'center', color:'#fff', fontWeight:600, fontSize:13}}>§</div>
+          <div className="serif" style={{fontSize:22, lineHeight:1}}>Substack</div>
+        </div>
+        <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', paddingLeft:38, marginTop:-2}}>Subscription Ledger</div>
+      </div>
+
+      <nav style={{display:'flex', flexDirection:'column', gap:2}}>
+        {items.map(it => (
+          <button key={it.k} onClick={()=>setView(it.k)} style={{
+            display:'flex', alignItems:'center', gap:10,
+            padding:'8px 10px', borderRadius:6,
+            background: view===it.k ? 'var(--bg)' : 'transparent',
+            color: view===it.k ? 'var(--ink)' : 'var(--ink-soft)',
+            fontWeight: view===it.k ? 500 : 400,
+            fontSize:13, textAlign:'left',
+            transition:'all .15s'
+          }}>
+            <span className="mono" style={{fontSize:10, color:'var(--ink-faint)'}}>{it.s}</span>
+            <span>{it.n}</span>
+          </button>
+        ))}
+      </nav>
+
+      <button onClick={onAdd} style={{
+        display:'flex', alignItems:'center', gap:10,
+        padding:'10px 12px', borderRadius:8,
+        background:'var(--ink)', color:'var(--surface)',
+        fontSize:13, fontWeight:500, textAlign:'left',
+        transition:'opacity .15s'
+      }} onMouseEnter={e=>e.currentTarget.style.opacity=0.85} onMouseLeave={e=>e.currentTarget.style.opacity=1}>
+        <span style={{fontSize:16, lineHeight:1}}>+</span>
+        <span>新增订阅</span>
+        <span className="mono" style={{marginLeft:'auto', fontSize:10, opacity:0.5, padding:'1px 4px', background:'rgba(255,255,255,0.1)', borderRadius:3}}>N</span>
+      </button>
+
+      <div style={{marginTop:'auto', padding:'16px', background:'var(--bg)', borderRadius:8, border:'1px solid var(--line)'}}>
+        <div style={{fontSize:10, color:'var(--ink-faint)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:6}}>This month</div>
+        <div className="serif" style={{fontSize:28, lineHeight:1, marginBottom:4}}>{fmt(stats.monthly)}</div>
+        <div style={{fontSize:11, color:'var(--ink-soft)'}}>{stats.count} active • {stats.upcoming.length} renewing</div>
+      </div>
+
+      {/* Data ops */}
+      <div style={{display:'flex', flexDirection:'column', gap:4}}>
+        <div style={{fontSize:10, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--ink-faint)', padding:'0 10px 4px'}}>
+          数据 · <span className="mono" style={{textTransform:'none', letterSpacing:0, color: savedAt==='new' ? 'var(--warning)' : 'var(--positive)'}}>
+            {savedAt==='new' ? '未保存' : savedAt==='loaded' ? '已恢复' : '已保存 ✓'}
+          </span>
+        </div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:4}}>
+          <button onClick={onExport} style={dataBtnStyle}>
+            <span style={{fontSize:12}}>↓</span><span>导出</span>
+          </button>
+          <button onClick={onImportClick} style={dataBtnStyle}>
+            <span style={{fontSize:12}}>↑</span><span>导入</span>
+          </button>
+        </div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:4}}>
+          <button onClick={onReset} style={dataBtnStyle}>
+            <span style={{fontSize:11}}>↺</span><span>演示</span>
+          </button>
+          <button onClick={onClearAll} style={{...dataBtnStyle, color:'var(--danger)'}}>
+            <span style={{fontSize:11}}>⌫</span><span>清空</span>
+          </button>
+        </div>
+      </div>
+
+      <button onClick={()=>setDark(!dark)} style={{
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        padding:'8px 10px', borderRadius:6, fontSize:12, color:'var(--ink-soft)'
+      }}>
+        <span>{dark ? 'Dark' : 'Light'} mode</span>
+        <span style={{width:28, height:16, borderRadius:8, background:'var(--line)', position:'relative'}}>
+          <span style={{position:'absolute', top:2, left: dark?14:2, width:12, height:12, borderRadius:6, background:'var(--ink)', transition:'all .2s'}}/>
+        </span>
+      </button>
+    </aside>
+  );
+}
+
+const dataBtnStyle = {
+  display:'flex', alignItems:'center', justifyContent:'center', gap:5,
+  padding:'7px 8px', borderRadius:6, fontSize:11,
+  background:'var(--bg)', border:'1px solid var(--line)',
+  color:'var(--ink-soft)', fontWeight:500,
+  transition:'all .15s'
+};
+
+// ---- TODAY VIEW -----------------------------------------------
+function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
+  const now = new Date();
+  const hour = now.getHours();
+  const dayProgress = (hour * 3600 + now.getMinutes()*60 + now.getSeconds()) / 86400;
+
+  const active = subs.filter(s => s.status==='active' || s.status==='trial');
+  const dailyTotal = active.reduce((a,s)=>a + toMonthly(s)/30.44, 0);
+  const spentSoFar = dailyTotal * dayProgress;
+  const remainingToday = dailyTotal - spentSoFar;
+
+  const billingToday = subs.filter(s => s.next==='2026-04-22' && s.status!=='paused');
+
+  // "用起来" list: daily cost if not used = pure waste
+  const actionables = active
+    .map(s => ({...s, daily: toMonthly(s)/30.44}))
+    .sort((a,b)=>b.daily-a.daily);
+
+  const usedCount = active.filter(s => usedToday.has(s.id)).length;
+  const wastedToday = active
+    .filter(s => !usedToday.has(s.id))
+    .reduce((a,s)=>a + toMonthly(s)/30.44, 0);
+  const savedByUsing = active
+    .filter(s => usedToday.has(s.id))
+    .reduce((a,s)=>a + toMonthly(s)/30.44, 0);
+
+  // week history mock
+  const weekData = [
+    {d:'周四', used:6, total:18},
+    {d:'周五', used:9, total:18},
+    {d:'周六', used:4, total:18},
+    {d:'周日', used:3, total:18},
+    {d:'周一', used:11, total:18},
+    {d:'周二', used:8, total:18},
+    {d:'今天', used:usedCount, total:active.length}
+  ];
+
+  return (
+    <div style={{padding:'32px 40px', maxHeight:'100vh', overflow:'auto'}}>
+      <Header title="Today" subtitle="今天的订阅开销和该用的服务" date="2026年4月22日 · 星期三"/>
+
+      {/* Hero: daily spend meter */}
+      <div style={{
+        background:'var(--surface)', border:'1px solid var(--line)',
+        borderRadius:16, padding:'36px 40px', marginBottom:24,
+        position:'relative', overflow:'hidden'
+      }}>
+        <div style={{display:'grid', gridTemplateColumns:'1.2fr 1fr', gap:48, alignItems:'center'}}>
+          <div>
+            <div style={{fontSize:11, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:10}}>今日订阅开销</div>
+            <div style={{display:'flex', alignItems:'baseline', gap:12, marginBottom:16}}>
+              <div className="serif" style={{fontSize:88, lineHeight:0.95}}>{fmt(dailyTotal)}</div>
+              <div style={{fontSize:14, color:'var(--ink-soft)'}}>/ 天</div>
+            </div>
+            <div style={{fontSize:13, color:'var(--ink-soft)', lineHeight:1.6, maxWidth:460}}>
+              你今天醒来就已经在付 <span className="mono" style={{color:'var(--accent)', fontWeight:500}}>{fmt(dailyTotal)}</span> 订阅费。
+              现在 {String(hour).padStart(2,'0')}:{String(now.getMinutes()).padStart(2,'0')}，已摊销 <span className="mono">{fmt(spentSoFar)}</span>，
+              剩余今日还要花 <span className="mono">{fmt(remainingToday)}</span>。
+            </div>
+          </div>
+
+          {/* Circular gauge */}
+          <div style={{display:'flex', justifyContent:'center', alignItems:'center'}}>
+            <div style={{position:'relative', width:220, height:220}}>
+              <svg viewBox="0 0 100 100" style={{width:'100%', height:'100%', transform:'rotate(-90deg)'}}>
+                <circle cx="50" cy="50" r="42" fill="none" stroke="var(--line)" strokeWidth="6"/>
+                <circle cx="50" cy="50" r="42" fill="none"
+                  stroke="var(--accent)" strokeWidth="6" strokeLinecap="round"
+                  strokeDasharray={`${dayProgress * 264} 264`}
+                  style={{transition:'all .5s'}}/>
+              </svg>
+              <div style={{position:'absolute', inset:0, display:'grid', placeItems:'center', textAlign:'center'}}>
+                <div>
+                  <div className="mono" style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em'}}>过完</div>
+                  <div className="serif" style={{fontSize:40, lineHeight:1, margin:'4px 0'}}>{Math.round(dayProgress*100)}%</div>
+                  <div style={{fontSize:11, color:'var(--ink-soft)'}}>今日进度</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom progress bar */}
+        <div style={{marginTop:28, paddingTop:20, borderTop:'1px solid var(--line-soft)'}}>
+          <div style={{display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--ink-faint)', marginBottom:6}} className="mono">
+            <span>00:00</span>
+            <span>06:00</span>
+            <span>12:00</span>
+            <span>18:00</span>
+            <span>24:00</span>
+          </div>
+          <div style={{height:8, background:'var(--line)', borderRadius:4, overflow:'hidden', position:'relative'}}>
+            <div style={{width:`${dayProgress*100}%`, height:'100%', background:'linear-gradient(90deg, var(--accent-soft), var(--accent))'}}/>
+            <div style={{position:'absolute', top:-4, left:`${dayProgress*100}%`, width:2, height:16, background:'var(--ink)', transform:'translateX(-50%)'}}/>
+          </div>
+        </div>
+      </div>
+
+      {/* Two-column: action list + billing + waste alert */}
+      <div style={{display:'grid', gridTemplateColumns:'1.5fr 1fr', gap:24, marginBottom:24}}>
+        {/* Action list */}
+        <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, padding:24}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:6}}>
+            <div className="serif" style={{fontSize:24}}>今天用起来</div>
+            <div className="mono" style={{fontSize:12, color:'var(--ink-soft)'}}>
+              {usedCount} / {active.length} · 已回本 <span style={{color:'var(--positive)', fontWeight:500}}>{fmt(savedByUsing)}</span>
+            </div>
+          </div>
+          <div style={{fontSize:12, color:'var(--ink-soft)', marginBottom:18}}>
+            勾掉用过的。没勾的 = 今天在浪费钱 <span className="mono" style={{color:'var(--danger)'}}>{fmt(wastedToday)}</span>
+          </div>
+
+          {/* Progress rail */}
+          <div style={{display:'flex', gap:3, marginBottom:20}}>
+            {active.map(s => (
+              <div key={s.id} style={{
+                flex:1, height:6, borderRadius:2,
+                background: usedToday.has(s.id) ? 'var(--positive)' : 'var(--line)',
+                transition:'background .2s'
+              }}/>
+            ))}
+          </div>
+
+          <div style={{display:'flex', flexDirection:'column', gap:6}}>
+            {actionables.map(s => {
+              const used = usedToday.has(s.id);
+              const isWaste = !used && s.usage<0.5;
+              return (
+                <div key={s.id} style={{
+                  display:'grid', gridTemplateColumns:'24px 36px 1fr auto auto', gap:14,
+                  alignItems:'center', padding:'10px 12px', borderRadius:8,
+                  background: used ? 'var(--accent-soft)' : isWaste ? 'rgba(168,58,40,0.05)' : 'transparent',
+                  border:'1px solid',
+                  borderColor: used ? 'transparent' : isWaste ? 'rgba(168,58,40,0.2)' : 'var(--line-soft)',
+                  transition:'all .2s'
+                }}>
+                  <button onClick={()=>toggleUsed(s.id)} style={{
+                    width:22, height:22, borderRadius:6,
+                    border: `1.5px solid ${used ? 'var(--accent)' : 'var(--line)'}`,
+                    background: used ? 'var(--accent)' : 'transparent',
+                    display:'grid', placeItems:'center',
+                    transition:'all .15s'
+                  }}>
+                    {used && <span style={{color:'#fff', fontSize:13, lineHeight:1}}>✓</span>}
+                  </button>
+                  <button onClick={()=>onPick(s)} style={{padding:0}}><Badge name={s.name} cat={s.cat}/></button>
+                  <button onClick={()=>onPick(s)} style={{textAlign:'left', padding:0}}>
+                    <div style={{fontSize:13, fontWeight:500, textDecoration: used?'line-through':'none', opacity: used?0.6:1}}>{s.name}</div>
+                    <div style={{fontSize:11, color:'var(--ink-faint)'}}>
+                      {s.plan} · <span style={{color: s.usage>0.7?'var(--positive)':s.usage>0.4?'var(--warning)':'var(--danger)'}}>
+                        {Math.round(s.usage*100)}% 使用率
+                      </span>
+                    </div>
+                  </button>
+                  <div style={{textAlign:'right'}}>
+                    <div className="mono" style={{fontSize:13, fontWeight:500, color: used?'var(--positive)':isWaste?'var(--danger)':'var(--ink)'}}>
+                      {fmt(s.daily)}
+                    </div>
+                    <div style={{fontSize:10, color:'var(--ink-faint)'}}>每天</div>
+                  </div>
+                  <div style={{width:60, textAlign:'right', fontSize:10, color:'var(--ink-faint)'}}>
+                    {used ? <span style={{color:'var(--positive)', fontWeight:500}}>已用 ✓</span>
+                          : isWaste ? <span style={{color:'var(--danger)', fontWeight:500}}>在烧钱</span>
+                          : <span>待使用</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right column: billing today + week */}
+        <div style={{display:'flex', flexDirection:'column', gap:24}}>
+          {/* Billing today */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, padding:24}}>
+            <div className="serif" style={{fontSize:22, marginBottom:4}}>今日扣款</div>
+            <div style={{fontSize:12, color:'var(--ink-faint)', marginBottom:16}}>2026-04-22 自动续订</div>
+            {billingToday.length===0 ? (
+              <div style={{padding:'16px 0', fontSize:13, color:'var(--ink-soft)'}}>
+                ✨ 今天没有订阅扣款
+                <div style={{fontSize:11, color:'var(--ink-faint)', marginTop:4}}>下次扣款 {stats.upcoming[0]?.days} 天后 · {stats.upcoming[0]?.name}</div>
+              </div>
+            ) : (
+              billingToday.map(s => (
+                <div key={s.id} style={{display:'flex', gap:12, alignItems:'center', padding:'10px 0'}}>
+                  <Badge name={s.name} cat={s.cat}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13, fontWeight:500}}>{s.name}</div>
+                    <div style={{fontSize:11, color:'var(--ink-faint)'}}>{s.method}</div>
+                  </div>
+                  <div className="mono" style={{fontSize:14, fontWeight:500}}>{fmt(s.price)}</div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Waste tally */}
+          <div style={{
+            background:'var(--bg)', border:'1px solid var(--line)', borderRadius:12, padding:24,
+            borderLeft:'3px solid var(--danger)'
+          }}>
+            <div style={{fontSize:11, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:8}}>如果今天不用</div>
+            <div className="serif" style={{fontSize:40, lineHeight:1, marginBottom:6, color:'var(--danger)'}}>{fmt(wastedToday)}</div>
+            <div style={{fontSize:12, color:'var(--ink-soft)', lineHeight:1.6}}>
+              {active.length - usedCount} 个订阅今天还没用到。
+              一个月按此速度浪费 <span className="mono" style={{color:'var(--danger)', fontWeight:500}}>{fmt(wastedToday*30)}</span>。
+            </div>
+          </div>
+
+          {/* 7-day streak */}
+          <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, padding:24}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:16}}>
+              <div className="serif" style={{fontSize:20}}>最近 7 天</div>
+              <div style={{fontSize:11, color:'var(--ink-faint)'}} className="mono">使用率</div>
+            </div>
+            <div style={{display:'flex', gap:6, alignItems:'flex-end', height:80}}>
+              {weekData.map((d,i) => {
+                const pct = d.used / d.total;
+                const isToday = i===weekData.length-1;
+                return (
+                  <div key={i} style={{flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:6}}>
+                    <div style={{
+                      width:'100%',
+                      height: `${pct*60+8}px`,
+                      background: isToday ? 'var(--accent)' : pct>0.5 ? 'var(--positive)' : pct>0.3 ? 'var(--warning)' : 'var(--danger)',
+                      borderRadius:3,
+                      opacity: isToday?1:0.6
+                    }}/>
+                    <div style={{fontSize:10, color: isToday?'var(--ink)':'var(--ink-faint)', fontWeight: isToday?600:400}}>{d.d}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{marginTop:12, fontSize:11, color:'var(--ink-soft)'}}>
+              最佳日 周一 11/18 · 今日 {usedCount}/{active.length}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom: daily breakdown */}
+      <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, padding:24}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:18}}>
+          <div className="serif" style={{fontSize:22}}>今日成本分解</div>
+          <div className="mono" style={{fontSize:12, color:'var(--ink-soft)'}}>按日摊销</div>
+        </div>
+        <div style={{display:'flex', height:24, borderRadius:6, overflow:'hidden', marginBottom:14}}>
+          {actionables.map(s => (
+            <div key={s.id}
+              onClick={()=>onPick(s)}
+              style={{
+                width:`${s.daily/dailyTotal*100}%`,
+                background: CAT_COLOR[s.cat],
+                opacity: usedToday.has(s.id)?1:0.35,
+                cursor:'pointer',
+                transition:'opacity .2s'
+              }}
+              title={`${s.name}: ${fmt(s.daily)}/day`}/>
+          ))}
+        </div>
+        <div style={{fontSize:11, color:'var(--ink-faint)', display:'flex', justifyContent:'space-between'}}>
+          <span>彩色 = 已使用 · 灰色 = 未使用</span>
+          <span className="mono">合计 {fmt(dailyTotal)}/天</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- OVERVIEW -----------------------------------------------
+function Overview({ subs, stats, onPick }) {
+  const cats = Object.entries(stats.byCat).sort((a,b)=>b[1]-a[1]);
+  const catTotal = cats.reduce((a,[,v])=>a+v,0);
+
+  return (
+    <div style={{padding:'32px 40px', maxHeight:'100vh', overflow:'auto'}}>
+      <Header title="Overview" subtitle="管理你所有进行中的订阅与开销" date="星期三 · 2026年4月22日"/>
+
+      {/* Top stats row */}
+      <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:1, background:'var(--line)', border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', marginBottom:32}}>
+        <StatBlock label="每月支出" value={fmt(stats.monthly)} hint="+$24.99 vs 上月" trend="up"/>
+        <StatBlock label="年化总额" value={fmt(stats.yearly)} hint={`约等于 ${(stats.yearly/1000).toFixed(1)}k`}/>
+        <StatBlock label="进行中" value={stats.count} hint="2 个试用中"/>
+        <StatBlock label="30天续订" value={stats.upcoming.length} hint={`共 ${fmt(stats.upcoming.reduce((a,s)=>a+s.price,0))}`} trend="neutral"/>
+      </div>
+
+      <div style={{display:'grid', gridTemplateColumns:'1.3fr 1fr', gap:24}}>
+        {/* Spend by category */}
+        <Card title="按分类支出" suffix={`月度 · ${fmt(catTotal)}`}>
+          <div style={{display:'flex', height:14, borderRadius:7, overflow:'hidden', marginBottom:20}}>
+            {cats.map(([c,v]) => (
+              <div key={c} style={{
+                width:`${v/catTotal*100}%`,
+                background: CAT_COLOR[c] || 'var(--ink-soft)',
+                transition:'all .3s'
+              }} title={`${c}: ${fmt(v)}`}/>
+            ))}
+          </div>
+          <div style={{display:'flex', flexDirection:'column', gap:12}}>
+            {cats.map(([c,v]) => (
+              <div key={c} style={{display:'grid', gridTemplateColumns:'14px 1fr auto auto', gap:12, alignItems:'center'}}>
+                <div style={{width:10, height:10, borderRadius:3, background:CAT_COLOR[c]}}/>
+                <div style={{fontSize:13}}>{c}</div>
+                <div className="mono" style={{fontSize:12, color:'var(--ink-soft)'}}>{((v/catTotal)*100).toFixed(1)}%</div>
+                <div className="mono" style={{fontSize:13, fontWeight:500, minWidth:70, textAlign:'right'}}>{fmt(v)}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Upcoming */}
+        <Card title="即将扣款" suffix="30 天内">
+          <div style={{display:'flex', flexDirection:'column'}}>
+            {stats.upcoming.slice(0,7).map((s,i) => (
+              <button key={s.id} onClick={()=>onPick(s)} style={{
+                display:'grid', gridTemplateColumns:'36px 1fr auto auto', gap:12, alignItems:'center',
+                padding:'10px 0',
+                borderBottom: i<Math.min(6, stats.upcoming.length-1) ? '1px solid var(--line-soft)' : 'none',
+                textAlign:'left', width:'100%'
+              }}>
+                <Badge name={s.name} cat={s.cat}/>
+                <div>
+                  <div style={{fontSize:13, fontWeight:500}}>{s.name}</div>
+                  <div style={{fontSize:11, color:'var(--ink-faint)'}}>{s.plan}</div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div className="mono" style={{fontSize:11, color: s.days<=3?'var(--accent)':'var(--ink-soft)'}}>
+                    {s.days===0 ? '今天' : s.days===1 ? '明天' : `${s.days} 天`}
+                  </div>
+                  <div style={{fontSize:10, color:'var(--ink-faint)'}}>{s.next.slice(5)}</div>
+                </div>
+                <div className="mono" style={{fontSize:13, fontWeight:500, minWidth:64, textAlign:'right'}}>{fmt(s.price)}</div>
+              </button>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Second row */}
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:24, marginTop:24}}>
+        {/* Low usage */}
+        <Card title="使用率偏低" suffix="可考虑取消">
+          <div style={{display:'flex', flexDirection:'column', gap:10}}>
+            {stats.lowUsage.map(s => (
+              <button key={s.id} onClick={()=>onPick(s)} style={{
+                display:'grid', gridTemplateColumns:'36px 1fr 80px auto', gap:14, alignItems:'center',
+                padding:'10px 12px', background:'var(--bg)', borderRadius:8, border:'1px solid var(--line-soft)',
+                textAlign:'left'
+              }}>
+                <Badge name={s.name} cat={s.cat}/>
+                <div>
+                  <div style={{fontSize:13, fontWeight:500}}>{s.name}</div>
+                  <div style={{fontSize:11, color:'var(--ink-faint)'}}>已订阅 {Math.floor((new Date('2026-04-22') - new Date(s.started))/(365*86400000))} 年</div>
+                </div>
+                <div>
+                  <div style={{height:4, background:'var(--line)', borderRadius:2, overflow:'hidden'}}>
+                    <div style={{width:`${s.usage*100}%`, height:'100%', background:'var(--warning)'}}/>
+                  </div>
+                  <div className="mono" style={{fontSize:10, color:'var(--ink-soft)', marginTop:4}}>{Math.round(s.usage*100)}% 使用</div>
+                </div>
+                <div className="mono" style={{fontSize:12, fontWeight:500, color:'var(--ink-soft)'}}>{fmt(s.price)}/m</div>
+              </button>
+            ))}
+            {stats.lowUsage.length===0 && <div style={{fontSize:12, color:'var(--ink-faint)', padding:'20px 0'}}>所有订阅使用率良好</div>}
+          </div>
+        </Card>
+
+        {/* 12 month trend */}
+        <Card title="12 个月支出趋势" suffix="总计 $2,134">
+          <Sparkline data={[145,152,148,165,178,182,171,195,198,215,224,238]} labels={['5','6','7','8','9','10','11','12','1','2','3','4']}/>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ---- LIST VIEW -----------------------------------------------
+function ListView({ subs, setSubs, onPick, filter, setFilter, query, setQuery, sort, setSort, onAdd }) {
+  const cats = ['all', ...new Set(subs.map(s=>s.cat))];
+  const filtered = useMemo(() => {
+    let r = subs;
+    if (filter!=='all') r = r.filter(s => s.cat===filter);
+    if (query) r = r.filter(s => s.name.toLowerCase().includes(query.toLowerCase()) || s.vendor.toLowerCase().includes(query.toLowerCase()));
+    r = [...r].sort((a,b) => {
+      if (sort==='next') return daysUntil(a.next) - daysUntil(b.next);
+      if (sort==='price') return toMonthly(b) - toMonthly(a);
+      if (sort==='name') return a.name.localeCompare(b.name);
+      if (sort==='started') return new Date(b.started) - new Date(a.started);
+      return 0;
+    });
+    return r;
+  }, [subs, filter, query, sort]);
+
+  return (
+    <div style={{padding:'32px 40px', maxHeight:'100vh', overflow:'auto'}}>
+      <Header title="Ledger" subtitle={`共 ${filtered.length} 条订阅记录`} date="全部记录"/>
+
+      {/* Toolbar */}
+      <div style={{display:'flex', gap:12, marginBottom:20, alignItems:'center', flexWrap:'wrap'}}>
+        <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索订阅名、服务商…" style={{
+          flex:'1 1 240px', padding:'9px 14px', background:'var(--surface)', border:'1px solid var(--line)',
+          borderRadius:8, fontSize:13, color:'var(--ink)', outline:'none'
+        }}/>
+        <div style={{display:'flex', gap:4, padding:3, background:'var(--surface)', border:'1px solid var(--line)', borderRadius:8}}>
+          {cats.map(c => (
+            <button key={c} onClick={()=>setFilter(c)} style={{
+              padding:'5px 10px', borderRadius:5, fontSize:12,
+              background: filter===c ? 'var(--bg)' : 'transparent',
+              color: filter===c ? 'var(--ink)' : 'var(--ink-soft)',
+              fontWeight: filter===c ? 500 : 400
+            }}>{c==='all'?'全部':c}</button>
+          ))}
+        </div>
+        <select value={sort} onChange={e=>setSort(e.target.value)} style={{
+          padding:'8px 12px', background:'var(--surface)', border:'1px solid var(--line)',
+          borderRadius:8, fontSize:12, color:'var(--ink)', outline:'none'
+        }}>
+          <option value="next">按下次扣款</option>
+          <option value="price">按月费</option>
+          <option value="name">按名称</option>
+          <option value="started">按订阅日期</option>
+        </select>
+        <button onClick={onAdd} style={{
+          padding:'9px 16px', background:'var(--ink)', color:'var(--surface)',
+          borderRadius:8, fontSize:12, fontWeight:500
+        }}>+ 新增订阅</button>
+      </div>
+
+      {/* Table */}
+      <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, overflow:'hidden'}}>
+        <div style={{
+          display:'grid', gridTemplateColumns:'40px 1.8fr 1fr 1fr 1fr 1fr 80px',
+          gap:16, padding:'12px 20px',
+          fontSize:10, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--ink-faint)',
+          borderBottom:'1px solid var(--line)', background:'var(--bg)'
+        }}>
+          <div></div>
+          <div>名称 / 方案</div>
+          <div>分类</div>
+          <div>价格</div>
+          <div>下次扣款</div>
+          <div>支付方式</div>
+          <div>状态</div>
+        </div>
+        {filtered.map((s,i) => (
+          <button key={s.id} onClick={()=>onPick(s)} style={{
+            display:'grid', gridTemplateColumns:'40px 1.8fr 1fr 1fr 1fr 1fr 80px',
+            gap:16, padding:'14px 20px', alignItems:'center',
+            borderBottom: i<filtered.length-1 ? '1px solid var(--line-soft)' : 'none',
+            background: 'transparent', textAlign:'left', width:'100%',
+            transition:'background .15s'
+          }} onMouseEnter={e=>e.currentTarget.style.background='var(--bg)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            <Badge name={s.name} cat={s.cat}/>
+            <div>
+              <div style={{fontSize:13, fontWeight:500, marginBottom:2}}>{s.name}
+                {s.shared && <span style={{marginLeft:6, fontSize:9, padding:'1px 5px', background:'var(--accent-soft)', color:'var(--accent)', borderRadius:3, fontWeight:500}}>SHARED</span>}
+              </div>
+              <div style={{fontSize:11, color:'var(--ink-faint)'}}>{s.plan}</div>
+            </div>
+            <div><CatPill cat={s.cat}/></div>
+            <div>
+              <div className="mono" style={{fontSize:13, fontWeight:500}}>{fmt(s.price)}</div>
+              <div style={{fontSize:10, color:'var(--ink-faint)'}}>每{s.cycle==='year'?'年':'月'}</div>
+            </div>
+            <div>
+              <div className="mono" style={{fontSize:12}}>{s.next}</div>
+              <div style={{fontSize:10, color: daysUntil(s.next)<=7?'var(--accent)':'var(--ink-faint)'}}>
+                {daysUntil(s.next)<=0 ? '今天' : `${daysUntil(s.next)} 天后`}
+              </div>
+            </div>
+            <div style={{fontSize:12, color:'var(--ink-soft)'}} className="mono">{s.method}</div>
+            <div><StatusDot status={s.status}/></div>
+          </button>
+        ))}
+        {filtered.length===0 && <div style={{padding:40, textAlign:'center', color:'var(--ink-faint)', fontSize:13}}>没有匹配的订阅</div>}
+      </div>
+    </div>
+  );
+}
+
+// ---- CALENDAR VIEW -----------------------------------------------
+function CalendarView({ subs, onPick }) {
+  const startMonth = new Date('2026-04-01');
+  const days = [];
+  const firstDay = startMonth.getDay();
+  for (let i=0; i<firstDay; i++) days.push(null);
+  for (let i=1; i<=30; i++) days.push(i);
+
+  const subsOnDay = (day) => {
+    if (!day) return [];
+    const ymd = `2026-04-${String(day).padStart(2,'0')}`;
+    return subs.filter(s => s.next===ymd && s.status!=='paused');
+  };
+
+  const monthTotal = subs.filter(s => s.next.startsWith('2026-04') && s.status!=='paused').reduce((a,s)=>a+s.price,0);
+
+  return (
+    <div style={{padding:'32px 40px', maxHeight:'100vh', overflow:'auto'}}>
+      <Header title="Calendar" subtitle="按日期查看续订与扣款" date="2026 年 4 月"/>
+
+      <div style={{display:'flex', justifyContent:'space-between', marginBottom:20, alignItems:'center'}}>
+        <div style={{display:'flex', gap:4, background:'var(--surface)', border:'1px solid var(--line)', borderRadius:8, padding:3}}>
+          <button style={{padding:'6px 12px', borderRadius:5, fontSize:12, color:'var(--ink-soft)'}}>‹</button>
+          <div style={{padding:'6px 16px', fontSize:13, fontWeight:500}}>2026 · 四月</div>
+          <button style={{padding:'6px 12px', borderRadius:5, fontSize:12, color:'var(--ink-soft)'}}>›</button>
+        </div>
+        <div className="mono" style={{fontSize:13, color:'var(--ink-soft)'}}>本月合计 <span style={{color:'var(--ink)', fontWeight:500}}>{fmt(monthTotal)}</span></div>
+      </div>
+
+      <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, overflow:'hidden'}}>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(7, 1fr)', borderBottom:'1px solid var(--line)'}}>
+          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+            <div key={d} style={{padding:'10px 12px', fontSize:10, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--ink-faint)', textAlign:'center', borderRight:'1px solid var(--line-soft)'}}>{d}</div>
+          ))}
+        </div>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(7, 1fr)'}}>
+          {days.map((day, i) => {
+            const dayS = subsOnDay(day);
+            const isToday = day===22;
+            return (
+              <div key={i} style={{
+                minHeight:110, padding:8,
+                borderRight: (i+1)%7!==0 ? '1px solid var(--line-soft)' : 'none',
+                borderBottom: i<days.length-7 ? '1px solid var(--line-soft)' : 'none',
+                background: isToday ? 'var(--accent-soft)' : 'transparent',
+                position:'relative'
+              }}>
+                {day && (
+                  <>
+                    <div style={{
+                      fontSize:11, fontWeight: isToday?600:400,
+                      color: isToday?'var(--accent)':'var(--ink-soft)',
+                      marginBottom:4
+                    }} className="mono">{String(day).padStart(2,'0')}</div>
+                    <div style={{display:'flex', flexDirection:'column', gap:3}}>
+                      {dayS.slice(0,3).map(s => (
+                        <button key={s.id} onClick={()=>onPick(s)} style={{
+                          display:'flex', gap:5, padding:'3px 6px',
+                          background:'var(--bg)', borderRadius:4, border:`1px solid ${CAT_COLOR[s.cat]}33`,
+                          borderLeft:`3px solid ${CAT_COLOR[s.cat]}`,
+                          fontSize:10, alignItems:'center', textAlign:'left'
+                        }}>
+                          <div style={{fontWeight:500, maxWidth:70, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{s.name}</div>
+                          <div className="mono" style={{marginLeft:'auto', color:'var(--ink-soft)', fontSize:9}}>{fmt(s.price).replace('.00','')}</div>
+                        </button>
+                      ))}
+                      {dayS.length>3 && <div style={{fontSize:10, color:'var(--ink-faint)', paddingLeft:4}}>+{dayS.length-3} more</div>}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- INSIGHTS VIEW -----------------------------------------------
+function InsightsView({ subs, stats }) {
+  const totalYearly = stats.yearly;
+  const aiYearly = subs.filter(s=>s.cat==='AI' && s.status!=='paused').reduce((a,s)=>a+toYearly(s),0);
+  const entYearly = subs.filter(s=>s.cat==='Entertainment' && s.status!=='paused').reduce((a,s)=>a+toYearly(s),0);
+  const byMethod = {};
+  subs.filter(s=>s.status!=='paused').forEach(s => { byMethod[s.method] = (byMethod[s.method]||0) + toMonthly(s); });
+
+  return (
+    <div style={{padding:'32px 40px', maxHeight:'100vh', overflow:'auto'}}>
+      <Header title="Insights" subtitle="深度分析与优化建议" date="最近 12 个月"/>
+
+      {/* Big number */}
+      <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, padding:'32px 40px', marginBottom:24}}>
+        <div style={{fontSize:11, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:8}}>年度总开销</div>
+        <div className="serif" style={{fontSize:72, lineHeight:1, marginBottom:8, color:'var(--ink)'}}>{fmt(totalYearly)}</div>
+        <div style={{fontSize:13, color:'var(--ink-soft)', maxWidth:600}}>
+          相当于 <span className="mono" style={{color:'var(--accent)'}}>{(totalYearly/30).toFixed(0)} 次</span>的星巴克，
+          或 <span className="mono" style={{color:'var(--accent)'}}>{Math.floor(totalYearly/900)} 次</span>的 iPhone 更新。
+          其中 AI 类占 <span className="mono">{((aiYearly/totalYearly)*100).toFixed(1)}%</span>，
+          娱乐类占 <span className="mono">{((entYearly/totalYearly)*100).toFixed(1)}%</span>。
+        </div>
+      </div>
+
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:24, marginBottom:24}}>
+        {/* Recommendations */}
+        <Card title="AI 建议" suffix="基于使用率">
+          <div style={{display:'flex', flexDirection:'column', gap:14}}>
+            <Recommendation
+              kind="cancel"
+              title="取消 Dropbox Plus"
+              reason="年付 $119.88，使用率仅 34%。iCloud+ 2TB 已能覆盖你的存储需求。"
+              save={119.88}
+            />
+            <Recommendation
+              kind="downgrade"
+              title="NYT 改为数字基础版"
+              reason="当前 All Access $25/月，使用率 40%。数字版 $10/月足够。"
+              save={180}
+            />
+            <Recommendation
+              kind="bundle"
+              title="考虑 ChatGPT Plus 替代 Pro"
+              reason="o3 调用量不足 Pro 配额的 20%，Plus $20/月已覆盖主要使用场景。"
+              save={2160}
+            />
+            <Recommendation
+              kind="positive"
+              title="Apple One Premier 已最优"
+              reason="相比单独订阅 iCloud + Music + TV+ 节省 $18/月。"
+              save={0}
+            />
+          </div>
+        </Card>
+
+        {/* Payment methods */}
+        <Card title="按支付方式" suffix="月度分布">
+          <div style={{display:'flex', flexDirection:'column', gap:16}}>
+            {Object.entries(byMethod).sort((a,b)=>b[1]-a[1]).map(([m,v]) => (
+              <div key={m}>
+                <div style={{display:'flex', justifyContent:'space-between', marginBottom:6}}>
+                  <div style={{fontSize:13}} className="mono">{m}</div>
+                  <div className="mono" style={{fontSize:13, fontWeight:500}}>{fmt(v)}</div>
+                </div>
+                <div style={{height:6, background:'var(--line)', borderRadius:3, overflow:'hidden'}}>
+                  <div style={{width:`${v/stats.monthly*100}%`, height:'100%', background:'var(--ink)'}}/>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{marginTop:24, paddingTop:16, borderTop:'1px solid var(--line-soft)', fontSize:12, color:'var(--ink-soft)'}}>
+            💳 Visa ••4821 承担了 {Math.round(byMethod['Visa ••4821']/stats.monthly*100)}% 的月度订阅，建议分散风险。
+          </div>
+        </Card>
+      </div>
+
+      {/* Yearly projection */}
+      <Card title="5 年展望" suffix="按当前水平推算">
+        <div style={{display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:16, marginTop:8}}>
+          {[1,2,3,4,5].map(y => (
+            <div key={y} style={{padding:20, background:'var(--bg)', borderRadius:8, border:'1px solid var(--line-soft)'}}>
+              <div style={{fontSize:11, color:'var(--ink-faint)', marginBottom:4}} className="mono">Year {y}</div>
+              <div className="serif" style={{fontSize:26, lineHeight:1, marginBottom:4}}>{fmt(totalYearly*y*(1+0.05*(y-1)))}</div>
+              <div style={{fontSize:10, color:'var(--ink-faint)'}}>累计 · 假设 5% 年通胀</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ---- DETAIL DRAWER -----------------------------------------------
+function DetailDrawer({ sub, onClose, onUpdate }) {
+  return (
+    <div onClick={onClose} style={{
+      position:'fixed', inset:0, background:'rgba(26,24,20,.4)',
+      display:'flex', justifyContent:'flex-end', zIndex:100, backdropFilter:'blur(4px)'
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        width:460, maxWidth:'100vw', height:'100vh', background:'var(--surface)',
+        padding:'28px 32px', overflow:'auto', boxShadow:'-20px 0 40px -10px rgba(0,0,0,.2)'
+      }}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24}}>
+          <div style={{display:'flex', gap:14, alignItems:'center'}}>
+            <Badge name={sub.name} cat={sub.cat} size={48}/>
+            <div>
+              <div className="serif" style={{fontSize:28, lineHeight:1, marginBottom:2}}>{sub.name}</div>
+              <div style={{fontSize:12, color:'var(--ink-soft)'}}>{sub.vendor} · {sub.plan}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{fontSize:20, color:'var(--ink-faint)', padding:4}}>×</button>
+        </div>
+
+        <div style={{background:'var(--bg)', borderRadius:10, padding:20, marginBottom:20}}>
+          <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:8}}>当前费用</div>
+          <div style={{display:'flex', alignItems:'baseline', gap:8}}>
+            <div className="serif" style={{fontSize:44, lineHeight:1}}>{fmt(sub.price)}</div>
+            <div style={{fontSize:14, color:'var(--ink-soft)'}}>/ {sub.cycle==='year'?'年':'月'}</div>
+          </div>
+          {sub.cycle==='year' && <div className="mono" style={{fontSize:11, color:'var(--ink-faint)', marginTop:4}}>≈ {fmt(sub.price/12)} / 月</div>}
+        </div>
+
+        <Field label="下次扣款" value={`${sub.next} · ${daysUntil(sub.next)} 天后`}/>
+        <Field label="支付方式" value={sub.method}/>
+        <Field label="开始日期" value={sub.started}/>
+        <Field label="已订阅" value={`${Math.floor((new Date('2026-04-22')-new Date(sub.started))/(365*86400000))} 年 ${Math.floor(((new Date('2026-04-22')-new Date(sub.started))/86400000 % 365)/30)} 个月`}/>
+        <Field label="累计支出" value={fmt(toMonthly(sub) * Math.floor((new Date('2026-04-22')-new Date(sub.started))/(30*86400000)))}/>
+        <Field label="分类" value={<CatPill cat={sub.cat}/>}/>
+        <Field label="共享" value={sub.shared ? '是' : '否'}/>
+        <Field label="状态" value={<StatusDot status={sub.status}/>}/>
+
+        <div style={{marginTop:20, paddingTop:20, borderTop:'1px solid var(--line)'}}>
+          <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:10}}>使用率</div>
+          <div style={{display:'flex', alignItems:'center', gap:12, marginBottom:6}}>
+            <div style={{flex:1, height:8, background:'var(--line)', borderRadius:4, overflow:'hidden'}}>
+              <div style={{width:`${sub.usage*100}%`, height:'100%', background: sub.usage>0.7?'var(--positive)':sub.usage>0.4?'var(--warning)':'var(--danger)'}}/>
+            </div>
+            <div className="mono" style={{fontSize:14, fontWeight:500, minWidth:50, textAlign:'right'}}>{Math.round(sub.usage*100)}%</div>
+          </div>
+          <div style={{fontSize:11, color:'var(--ink-soft)'}}>
+            {sub.usage>0.7 ? '使用充分，值得保留' : sub.usage>0.4 ? '中等使用率' : '使用率偏低，建议考虑取消'}
+          </div>
+        </div>
+
+        {sub.note && (
+          <div style={{marginTop:20, padding:14, background:'var(--bg)', borderRadius:8, borderLeft:'3px solid var(--ink-faint)'}}>
+            <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:6}}>备注</div>
+            <div style={{fontSize:13, color:'var(--ink-soft)'}}>{sub.note}</div>
+          </div>
+        )}
+
+        <div style={{display:'flex', gap:8, marginTop:24}}>
+          <button style={{flex:1, padding:'10px', background:'var(--ink)', color:'var(--surface)', borderRadius:8, fontSize:12, fontWeight:500}}>编辑订阅</button>
+          <button style={{flex:1, padding:'10px', background:'transparent', color:'var(--danger)', border:'1px solid var(--danger)', borderRadius:8, fontSize:12, fontWeight:500}}>取消订阅</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- ADD MODAL -----------------------------------------------
+function AddModal({ onClose, onAdd, existingNames }) {
+  const [query, setQuery] = useState('');
+  const [cat, setCat] = useState('all');
+  const [selectedTpl, setSelectedTpl] = useState(null);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [method, setMethod] = useState('Visa ••4821');
+
+  const cats = ['all', ...Array.from(new Set(TEMPLATES.map(t=>t.cat)))];
+
+  const filtered = useMemo(() => {
+    let r = TEMPLATES;
+    if (cat!=='all') r = r.filter(t => t.cat===cat);
+    if (query) r = r.filter(t =>
+      t.name.toLowerCase().includes(query.toLowerCase()) ||
+      t.vendor.toLowerCase().includes(query.toLowerCase()) ||
+      t.cat.toLowerCase().includes(query.toLowerCase())
+    );
+    return r;
+  }, [query, cat]);
+
+  const popular = TEMPLATES.filter(t => ['Netflix','Spotify','ChatGPT','Claude','Notion','Apple Music','iCloud+','1Password','YouTube Premium','GitHub','Figma','Cursor'].includes(t.name));
+
+  return (
+    <div onClick={onClose} style={{
+      position:'fixed', inset:0, background:'rgba(26,24,20,.5)',
+      display:'grid', placeItems:'center', zIndex:200, backdropFilter:'blur(6px)',
+      padding:40
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        width:'min(960px, 100%)', maxHeight:'calc(100vh - 80px)',
+        background:'var(--surface)', borderRadius:16, overflow:'hidden',
+        display:'flex', flexDirection:'column',
+        boxShadow:'0 30px 80px rgba(0,0,0,.3)',
+        border:'1px solid var(--line)'
+      }}>
+        {selectedTpl ? (
+          <ConfigStep tpl={selectedTpl} selectedPlan={selectedPlan} setSelectedPlan={setSelectedPlan}
+            method={method} setMethod={setMethod}
+            onBack={()=>{setSelectedTpl(null); setSelectedPlan(null);}}
+            onClose={onClose}
+            onConfirm={()=>{ if (selectedPlan) onAdd(selectedTpl, selectedPlan, method); }}/>
+        ) : (
+          <BrowseStep
+            query={query} setQuery={setQuery}
+            cat={cat} setCat={setCat} cats={cats}
+            filtered={filtered} popular={popular}
+            existingNames={existingNames}
+            onPick={t=>{setSelectedTpl(t); setSelectedPlan(t.plans[Math.min(1, t.plans.length-1)]);}}
+            onClose={onClose}/>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BrowseStep({ query, setQuery, cat, setCat, cats, filtered, popular, existingNames, onPick, onClose }) {
+  return (
+    <>
+      {/* Header */}
+      <div style={{padding:'24px 28px 0', borderBottom:'1px solid var(--line)'}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16}}>
+          <div>
+            <div className="serif" style={{fontSize:28, lineHeight:1, marginBottom:4}}>新增订阅</div>
+            <div style={{fontSize:12, color:'var(--ink-soft)'}}>从 {TEMPLATES.length} 个常见 app 模板选择 · 点即添加</div>
+          </div>
+          <button onClick={onClose} style={{fontSize:22, color:'var(--ink-faint)', padding:'4px 10px'}}>×</button>
+        </div>
+
+        {/* Search */}
+        <input autoFocus value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索 Netflix、ChatGPT、Notion…" style={{
+          width:'100%', padding:'12px 16px', marginBottom:14,
+          background:'var(--bg)', border:'1px solid var(--line)',
+          borderRadius:10, fontSize:14, color:'var(--ink)', outline:'none'
+        }}/>
+
+        {/* Cat tabs */}
+        <div style={{display:'flex', gap:4, overflowX:'auto', paddingBottom:14, marginLeft:-4, marginRight:-4, paddingLeft:4, paddingRight:4}}>
+          {cats.map(c => (
+            <button key={c} onClick={()=>setCat(c)} style={{
+              padding:'6px 12px', borderRadius:6, fontSize:12,
+              background: cat===c ? 'var(--ink)' : 'var(--bg)',
+              color: cat===c ? 'var(--surface)' : 'var(--ink-soft)',
+              fontWeight: cat===c ? 500 : 400,
+              whiteSpace:'nowrap',
+              border:'1px solid',
+              borderColor: cat===c ? 'var(--ink)' : 'var(--line)'
+            }}>{c==='all' ? `全部 ${TEMPLATES.length}` : c}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{flex:1, overflow:'auto', padding:'20px 28px'}}>
+        {cat==='all' && query==='' && (
+          <div style={{marginBottom:28}}>
+            <div style={{fontSize:11, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:12}}>热门</div>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(6, 1fr)', gap:8}}>
+              {popular.map(t => (
+                <TemplatePill key={t.name} tpl={t} existingNames={existingNames} onPick={onPick}/>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{fontSize:11, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:12, display:'flex', justifyContent:'space-between'}}>
+          <span>{cat==='all' ? '全部' : cat}</span>
+          <span className="mono" style={{textTransform:'none', letterSpacing:0}}>{filtered.length} 个</span>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10}}>
+          {filtered.map(t => (
+            <TemplateCard key={t.name} tpl={t} existingNames={existingNames} onPick={onPick}/>
+          ))}
+        </div>
+
+        {filtered.length===0 && (
+          <div style={{padding:'40px 20px', textAlign:'center', color:'var(--ink-faint)', fontSize:13}}>
+            没有匹配的模板
+            <div style={{marginTop:12}}>
+              <button style={{padding:'8px 16px', background:'var(--ink)', color:'var(--surface)', borderRadius:8, fontSize:12}}>
+                手动添加 "{query}"
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={{marginTop:20, padding:16, background:'var(--bg)', border:'1px dashed var(--line)', borderRadius:10, textAlign:'center'}}>
+          <div style={{fontSize:12, color:'var(--ink-soft)', marginBottom:8}}>找不到？</div>
+          <button style={{padding:'7px 14px', background:'var(--surface)', border:'1px solid var(--line)', borderRadius:6, fontSize:12, fontWeight:500}}>
+            手动添加自定义订阅
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function TemplateCard({ tpl, existingNames, onPick }) {
+  const already = existingNames.includes(tpl.name);
+  const lowPrice = Math.min(...tpl.plans.map(p => p.cycle==='year' ? p.price/12 : p.price));
+  const highPrice = Math.max(...tpl.plans.map(p => p.cycle==='year' ? p.price/12 : p.price));
+
+  return (
+    <button onClick={()=>!already && onPick(tpl)} disabled={already} style={{
+      padding:'14px', borderRadius:10,
+      background:'var(--bg)', border:'1px solid var(--line)',
+      textAlign:'left', display:'flex', gap:12, alignItems:'center',
+      opacity: already ? 0.5 : 1,
+      cursor: already ? 'default' : 'pointer',
+      transition:'all .15s',
+      position:'relative'
+    }}
+      onMouseEnter={e=>{if(!already){e.currentTarget.style.borderColor='var(--ink-soft)'; e.currentTarget.style.transform='translateY(-1px)';}}}
+      onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--line)'; e.currentTarget.style.transform='translateY(0)';}}>
+      <LogoIcon slug={tpl.slug} color={tpl.color} fallback={tpl.icon} size={40}/>
+      <div style={{flex:1, minWidth:0}}>
+        <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:2}}>
+          <div style={{fontSize:13, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{tpl.name}</div>
+          {already && <span style={{fontSize:9, padding:'1px 5px', background:'var(--line)', color:'var(--ink-soft)', borderRadius:3}}>已有</span>}
+        </div>
+        <div style={{fontSize:11, color:'var(--ink-faint)', display:'flex', gap:6, alignItems:'center'}}>
+          <CatPill cat={tpl.cat}/>
+          <span className="mono">
+            {lowPrice===highPrice ? fmt(lowPrice) : `${fmt(lowPrice)}–${fmt(highPrice)}`}/m
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function TemplatePill({ tpl, existingNames, onPick }) {
+  const already = existingNames.includes(tpl.name);
+  return (
+    <button onClick={()=>!already && onPick(tpl)} disabled={already} style={{
+      padding:'14px 8px', borderRadius:10,
+      background:'var(--bg)', border:'1px solid var(--line)',
+      display:'flex', flexDirection:'column', alignItems:'center', gap:8,
+      opacity: already ? 0.5 : 1,
+      cursor: already ? 'default' : 'pointer',
+      transition:'all .15s'
+    }}
+      onMouseEnter={e=>{if(!already){e.currentTarget.style.borderColor='var(--ink-soft)'; e.currentTarget.style.transform='translateY(-2px)';}}}
+      onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--line)'; e.currentTarget.style.transform='translateY(0)';}}>
+      <LogoIcon slug={tpl.slug} color={tpl.color} fallback={tpl.icon} size={44}/>
+      <div style={{fontSize:11, fontWeight:500, textAlign:'center', width:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{tpl.name}</div>
+    </button>
+  );
+}
+
+function ConfigStep({ tpl, selectedPlan, setSelectedPlan, method, setMethod, onBack, onClose, onConfirm }) {
+  const methods = ['Visa ••4821', 'Mastercard ••9911', 'Apple Pay', 'PayPal', 'Amex ••1002'];
+
+  return (
+    <>
+      {/* Header */}
+      <div style={{padding:'24px 28px', borderBottom:'1px solid var(--line)', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+        <button onClick={onBack} style={{display:'flex', gap:8, alignItems:'center', fontSize:13, color:'var(--ink-soft)'}}>
+          <span>‹</span><span>选择其他</span>
+        </button>
+        <button onClick={onClose} style={{fontSize:22, color:'var(--ink-faint)'}}>×</button>
+      </div>
+
+      {/* Body */}
+      <div style={{flex:1, overflow:'auto', padding:'28px 40px'}}>
+        {/* Hero */}
+        <div style={{display:'flex', gap:18, alignItems:'center', marginBottom:28}}>
+          <LogoIcon slug={tpl.slug} color={tpl.color} fallback={tpl.icon} size={64}/>
+          <div>
+            <div className="serif" style={{fontSize:34, lineHeight:1, marginBottom:4}}>{tpl.name}</div>
+            <div style={{fontSize:12, color:'var(--ink-soft)', display:'flex', gap:10, alignItems:'center'}}>
+              <span>{tpl.vendor}</span>
+              <span style={{width:3, height:3, background:'var(--ink-faint)', borderRadius:2}}/>
+              <CatPill cat={tpl.cat}/>
+            </div>
+          </div>
+        </div>
+
+        {/* Plans */}
+        <div style={{fontSize:11, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:10}}>选择方案</div>
+        <div style={{display:'flex', flexDirection:'column', gap:8, marginBottom:28}}>
+          {tpl.plans.map(p => {
+            const picked = selectedPlan?.name===p.name;
+            const monthly = p.cycle==='year' ? p.price/12 : p.price;
+            return (
+              <button key={p.name} onClick={()=>setSelectedPlan(p)} style={{
+                display:'grid', gridTemplateColumns:'24px 1fr auto', gap:14, alignItems:'center',
+                padding:'14px 16px', borderRadius:10,
+                background: picked ? 'var(--accent-soft)' : 'var(--bg)',
+                border: `1.5px solid ${picked ? 'var(--accent)' : 'var(--line)'}`,
+                textAlign:'left', transition:'all .15s'
+              }}>
+                <div style={{
+                  width:18, height:18, borderRadius:9,
+                  border:`1.5px solid ${picked ? 'var(--accent)' : 'var(--line)'}`,
+                  background: picked ? 'var(--accent)' : 'transparent',
+                  display:'grid', placeItems:'center'
+                }}>
+                  {picked && <span style={{width:7, height:7, borderRadius:4, background:'#fff'}}/>}
+                </div>
+                <div>
+                  <div style={{fontSize:14, fontWeight:500}}>{p.name}</div>
+                  <div style={{fontSize:11, color:'var(--ink-faint)'}}>
+                    {p.cycle==='year' ? `按年付 · ≈ ${fmt(monthly)}/月` : '按月付'}
+                  </div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div className="mono" style={{fontSize:15, fontWeight:500}}>{fmt(p.price)}</div>
+                  <div style={{fontSize:10, color:'var(--ink-faint)'}}>每{p.cycle==='year'?'年':'月'}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Payment method */}
+        <div style={{fontSize:11, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:10}}>支付方式</div>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8, marginBottom:24}}>
+          {methods.map(m => (
+            <button key={m} onClick={()=>setMethod(m)} style={{
+              padding:'10px 12px', borderRadius:8,
+              background: method===m ? 'var(--accent-soft)' : 'var(--bg)',
+              border:`1.5px solid ${method===m ? 'var(--accent)' : 'var(--line)'}`,
+              fontSize:12, textAlign:'left', fontFamily:'JetBrains Mono,monospace'
+            }}>{m}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{padding:'16px 28px', borderTop:'1px solid var(--line)', background:'var(--bg)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:16}}>
+        <div style={{fontSize:12, color:'var(--ink-soft)'}}>
+          {selectedPlan ? (
+            <>
+              首次扣款 <span className="mono" style={{color:'var(--ink)', fontWeight:500}}>2026-05-22</span> · <span className="mono" style={{color:'var(--accent)', fontWeight:500}}>{fmt(selectedPlan.price)}</span>
+            </>
+          ) : '请选择方案'}
+        </div>
+        <button onClick={onConfirm} disabled={!selectedPlan} style={{
+          padding:'10px 22px', background: selectedPlan ? 'var(--ink)' : 'var(--line)',
+          color: selectedPlan ? 'var(--surface)' : 'var(--ink-faint)',
+          borderRadius:8, fontSize:13, fontWeight:500,
+          cursor: selectedPlan ? 'pointer' : 'default'
+        }}>添加到 Ledger →</button>
+      </div>
+    </>
+  );
+}
+
+// ---- PRIMITIVES -----------------------------------------------
+function Header({ title, subtitle, date }) {
+  return (
+    <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:28}}>
+      <div>
+        <div className="serif" style={{fontSize:44, lineHeight:1, marginBottom:6}}>{title}</div>
+        <div style={{fontSize:13, color:'var(--ink-soft)'}}>{subtitle}</div>
+      </div>
+      <div style={{fontSize:11, color:'var(--ink-faint)', textTransform:'uppercase', letterSpacing:'0.08em'}} className="mono">{date}</div>
+    </div>
+  );
+}
+
+function StatBlock({ label, value, hint, trend }) {
+  return (
+    <div style={{padding:'20px 24px', background:'var(--surface)'}}>
+      <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:6}}>{label}</div>
+      <div className="serif" style={{fontSize:32, lineHeight:1.1, marginBottom:4}}>{value}</div>
+      <div style={{fontSize:11, color: trend==='up'?'var(--accent)':'var(--ink-soft)'}}>{hint}</div>
+    </div>
+  );
+}
+
+function Card({ title, suffix, children }) {
+  return (
+    <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, padding:24}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:18}}>
+        <div className="serif" style={{fontSize:20}}>{title}</div>
+        {suffix && <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.04em'}} className="mono">{suffix}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function LogoIcon({ slug, color, fallback, size=32 }) {
+  const [err, setErr] = useState(false);
+  const r = Math.max(6, Math.round(size*0.25));
+  const pad = Math.round(size*0.22);
+
+  if (!slug || err) {
+    const bg = color || '#6b6459';
+    return (
+      <div style={{
+        width:size, height:size, borderRadius:r,
+        background: `${bg}22`, color: bg,
+        display:'grid', placeItems:'center',
+        fontSize: size*0.44, fontWeight:600,
+        border: `1px solid ${bg}44`,
+        flexShrink:0
+      }}>{fallback}</div>
+    );
+  }
+  return (
+    <div style={{
+      width:size, height:size, borderRadius:r,
+      background: color || '#1a1814',
+      display:'grid', placeItems:'center',
+      padding: pad, boxSizing:'border-box',
+      flexShrink:0
+    }}>
+      <img src={`https://cdn.simpleicons.org/${slug}/white`}
+        onError={()=>setErr(true)} loading="lazy" alt=""
+        style={{width:'100%', height:'100%', objectFit:'contain', display:'block'}}/>
+    </div>
+  );
+}
+
+function Badge({ name, cat, size=32 }) {
+  const brand = BRAND_LOOKUP[name];
+  if (brand) {
+    return <LogoIcon slug={brand.slug} color={brand.color} fallback={brand.icon || name[0]} size={size}/>;
+  }
+  const color = CAT_COLOR[cat] || '#6b6459';
+  return (
+    <div style={{
+      width:size, height:size, borderRadius: size/4,
+      background: `${color}22`, color: color,
+      display:'grid', placeItems:'center',
+      fontSize: size*0.44, fontWeight:600,
+      border: `1px solid ${color}44`,
+      flexShrink:0
+    }}>{name[0]}</div>
+  );
+}
+
+function CatPill({ cat }) {
+  const color = CAT_COLOR[cat] || '#6b6459';
+  return (
+    <span style={{
+      display:'inline-flex', alignItems:'center', gap:5,
+      padding:'2px 8px', borderRadius:4,
+      background: `${color}15`, color: color,
+      fontSize:11, fontWeight:500
+    }}>
+      <span style={{width:5, height:5, borderRadius:3, background:color}}/>
+      {cat}
+    </span>
+  );
+}
+
+function StatusDot({ status }) {
+  const m = {
+    active: {c:'var(--positive)', t:'Active'},
+    paused: {c:'var(--ink-faint)', t:'Paused'},
+    trial:  {c:'var(--warning)', t:'Trial'}
+  };
+  const s = m[status] || m.active;
+  return (
+    <span style={{display:'inline-flex', alignItems:'center', gap:6, fontSize:11, color:'var(--ink-soft)'}}>
+      <span style={{width:6, height:6, borderRadius:3, background:s.c}}/>
+      {s.t}
+    </span>
+  );
+}
+
+function Sparkline({ data, labels }) {
+  const max = Math.max(...data), min = Math.min(...data);
+  const W = 500, H = 180, P = 20;
+  const x = i => P + (i/(data.length-1))*(W-2*P);
+  const y = v => P + (1-(v-min)/(max-min))*(H-2*P);
+  const path = data.map((v,i) => `${i===0?'M':'L'}${x(i)},${y(v)}`).join(' ');
+  const area = `${path} L${x(data.length-1)},${H-P} L${x(0)},${H-P} Z`;
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H+30}`} style={{width:'100%', height:'auto'}}>
+        <defs>
+          <linearGradient id="gradFill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.3"/>
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#gradFill)"/>
+        <path d={path} stroke="var(--accent)" strokeWidth="2" fill="none"/>
+        {data.map((v,i) => (
+          <circle key={i} cx={x(i)} cy={y(v)} r={i===data.length-1?4:0} fill="var(--accent)" stroke="var(--surface)" strokeWidth="2"/>
+        ))}
+        {labels.map((l,i) => (
+          <text key={i} x={x(i)} y={H+15} fontSize="10" fill="var(--ink-faint)" textAnchor="middle" fontFamily="JetBrains Mono">{l}月</text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function Recommendation({ kind, title, reason, save }) {
+  const colorMap = {
+    cancel: 'var(--danger)',
+    downgrade: 'var(--warning)',
+    bundle: 'var(--accent)',
+    positive: 'var(--positive)'
+  };
+  const tagMap = {
+    cancel:'取消', downgrade:'降级', bundle:'合并', positive:'良好'
+  };
+  const color = colorMap[kind];
+  return (
+    <div style={{padding:14, background:'var(--bg)', borderRadius:8, borderLeft:`3px solid ${color}`}}>
+      <div style={{display:'flex', justifyContent:'space-between', marginBottom:6, alignItems:'center'}}>
+        <div style={{display:'flex', gap:8, alignItems:'center'}}>
+          <span style={{fontSize:10, padding:'2px 6px', background:`${color}22`, color, borderRadius:3, fontWeight:500}}>{tagMap[kind]}</span>
+          <div style={{fontSize:13, fontWeight:500}}>{title}</div>
+        </div>
+        {save>0 && <div className="mono" style={{fontSize:12, color:'var(--positive)', fontWeight:500}}>省 {fmt(save)}/年</div>}
+      </div>
+      <div style={{fontSize:12, color:'var(--ink-soft)', lineHeight:1.5}}>{reason}</div>
+    </div>
+  );
+}
+
+function Field({ label, value }) {
+  return (
+    <div style={{display:'grid', gridTemplateColumns:'120px 1fr', padding:'10px 0', borderBottom:'1px solid var(--line-soft)', alignItems:'center', gap:16}}>
+      <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.06em', textTransform:'uppercase'}}>{label}</div>
+      <div style={{fontSize:13}} className={typeof value==='string' && (value.includes('-')||value.includes('••'))?'mono':''}>{value}</div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
