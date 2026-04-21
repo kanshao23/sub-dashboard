@@ -449,9 +449,21 @@ TEMPLATES.forEach(t => { if (SLUG_MAP[t.name]) t.slug = SLUG_MAP[t.name]; });
 const BRAND_LOOKUP = {};
 TEMPLATES.forEach(t => { BRAND_LOOKUP[t.name] = { slug: t.slug, color: t.color, icon: t.icon }; });
 // ---- HELPERS -----------------------------------------------
-const fmt = n => (n<0?'-':'') + '$' + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const RATES = { USD: 1, CNY: 7.2, EUR: 0.92 };
+const SYM = { USD: '$', CNY: '¥', EUR: '€' };
+const CURRENCY_OPTIONS = [['USD','$ USD'], ['CNY','¥ CNY'], ['EUR','€ EUR']];
+
+const fmt = (n, cur = 'USD') => {
+  const s = SYM[cur] || '$';
+  const abs = Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  return (n<0?'-':'') + s + abs;
+};
+const conv = (n, from = 'USD', to = 'USD') => from===to ? n : n / (RATES[from]||1) * (RATES[to]||1);
 const toMonthly = s => s.cycle==='year' ? s.price/12 : s.price;
 const toYearly = s => s.cycle==='year' ? s.price : s.price*12;
+const subCur = s => s.currency || 'USD';
+const toMonthlyIn = (s, cur='USD') => conv(toMonthly(s), subCur(s), cur);
+const toYearlyIn  = (s, cur='USD') => conv(toYearly(s),  subCur(s), cur);
 const daysUntil = (d) => {
   const today = new Date('2026-04-22');
   const t = new Date(d);
@@ -474,14 +486,14 @@ function saveStore(data) {
 }
 
 // ---- STATS -----------------------------------------------
-function useStats(subs) {
+function useStats(subs, currency='USD') {
   return useMemo(() => {
     const active = subs.filter(s => s.status==='active' || s.status==='trial');
-    const monthly = active.reduce((a,s)=>a+toMonthly(s),0);
-    const yearly = active.reduce((a,s)=>a+toYearly(s),0);
+    const monthly = active.reduce((a,s)=>a+toMonthlyIn(s, currency),0);
+    const yearly = active.reduce((a,s)=>a+toYearlyIn(s, currency),0);
     const byCat = {};
     active.forEach(s => {
-      byCat[s.cat] = (byCat[s.cat]||0) + toMonthly(s);
+      byCat[s.cat] = (byCat[s.cat]||0) + toMonthlyIn(s, currency);
     });
     const upcoming = subs
       .filter(s => s.status!=='paused')
@@ -489,14 +501,15 @@ function useStats(subs) {
       .filter(s => s.days>=0 && s.days<=30)
       .sort((a,b)=>a.days-b.days);
     const lowUsage = active.filter(s => s.usage<0.4).sort((a,b)=>a.usage-b.usage);
-    return { monthly, yearly, byCat, upcoming, lowUsage, count: active.length };
-  }, [subs]);
+    return { monthly, yearly, byCat, upcoming, lowUsage, count: active.length, currency };
+  }, [subs, currency]);
 }
 
 // ---- APP -----------------------------------------------
 function App() {
   const initial = useMemo(() => loadStore(), []);
   const [dark, setDark] = useState(initial?.dark ?? false);
+  const [currency, setCurrency] = useState(initial?.currency ?? 'USD');
   const [view, setView] = useState('today');
   const [subs, setSubs] = useState(initial?.subs ?? SUBS);
   const [selected, setSelected] = useState(null);
@@ -518,11 +531,12 @@ function App() {
       version: 1,
       subs,
       dark,
+      currency,
       usedToday: { date: TODAY_STR, ids: [...usedToday] },
       savedAt: new Date().toISOString()
     });
     setSavedAt(new Date().toISOString());
-  }, [subs, dark, usedToday]);
+  }, [subs, dark, currency, usedToday]);
 
   const exportData = () => {
     const payload = {
@@ -590,6 +604,7 @@ function App() {
       plan: plan.name,
       price: plan.price,
       cycle: plan.cycle,
+      currency: plan.currency || 'USD',
       started: '2026-04-22',
       next: nextStr,
       method: method,
@@ -615,11 +630,12 @@ function App() {
     document.body.classList.toggle('dark', dark);
   }, [dark]);
 
-  const stats = useStats(subs);
+  const stats = useStats(subs, currency);
 
   return (
     <div style={{display:'grid', gridTemplateColumns:'220px 1fr', minHeight:'100vh'}}>
       <Sidebar view={view} setView={setView} dark={dark} setDark={setDark} stats={stats}
+        currency={currency} setCurrency={setCurrency}
         onAdd={()=>setShowAdd(true)}
         onExport={exportData}
         onImportClick={()=>fileInputRef.current?.click()}
@@ -628,25 +644,26 @@ function App() {
         savedAt={savedAt}/>
       <input ref={fileInputRef} type="file" accept=".json,application/json" onChange={importData} style={{display:'none'}}/>
       <main style={{background:'var(--bg)', overflow:'hidden'}}>
-        {view==='today' && <TodayView subs={subs} stats={stats} onPick={setSelected} usedToday={usedToday} toggleUsed={toggleUsed}/>}
-        {view==='overview' && <Overview subs={subs} stats={stats} onPick={setSelected}/>}
-        {view==='list' && <ListView subs={subs} setSubs={setSubs} onPick={setSelected} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} sort={sort} setSort={setSort} onAdd={()=>setShowAdd(true)}/>}
-        {view==='calendar' && <CalendarView subs={subs} onPick={setSelected}/>}
-        {view==='insights' && <InsightsView subs={subs} stats={stats}/>}
+        {view==='today' && <TodayView subs={subs} stats={stats} onPick={setSelected} usedToday={usedToday} toggleUsed={toggleUsed} currency={currency}/>}
+        {view==='overview' && <Overview subs={subs} stats={stats} onPick={setSelected} currency={currency}/>}
+        {view==='list' && <ListView subs={subs} setSubs={setSubs} onPick={setSelected} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} sort={sort} setSort={setSort} onAdd={()=>setShowAdd(true)} currency={currency}/>}
+        {view==='calendar' && <CalendarView subs={subs} onPick={setSelected} currency={currency}/>}
+        {view==='insights' && <InsightsView subs={subs} stats={stats} currency={currency}/>}
       </main>
       {selected && <DetailDrawer
         sub={selected}
+        currency={currency}
         onClose={()=>setSelected(null)}
         onUpdate={(u)=>{setSubs(subs.map(s=>s.id===u.id?u:s)); setSelected(u);}}
         onDelete={(id)=>{setSubs(subs.filter(s=>s.id!==id)); setUsedToday(prev=>{const n=new Set(prev); n.delete(id); return n;}); setSelected(null);}}
       />}
-      {showAdd && <AddModal onClose={()=>setShowAdd(false)} onAdd={addSub} existingNames={subs.map(s=>s.name)}/>}
+      {showAdd && <AddModal onClose={()=>setShowAdd(false)} onAdd={addSub} existingNames={subs.map(s=>s.name)} currency={currency}/>}
     </div>
   );
 }
 
 // ---- SIDEBAR -----------------------------------------------
-function Sidebar({ view, setView, dark, setDark, stats, onAdd, onExport, onImportClick, onReset, onClearAll, savedAt }) {
+function Sidebar({ view, setView, dark, setDark, stats, currency, setCurrency, onAdd, onExport, onImportClick, onReset, onClearAll, savedAt }) {
   const items = [
     {k:'today', n:'Today', s:'00'},
     {k:'overview', n:'Overview', s:'01'},
@@ -704,8 +721,20 @@ function Sidebar({ view, setView, dark, setDark, stats, onAdd, onExport, onImpor
       </button>
 
       <div style={{marginTop:'auto', padding:'16px', background:'var(--bg)', borderRadius:8, border:'1px solid var(--line)'}}>
-        <div style={{fontSize:10, color:'var(--ink-faint)', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:6}}>This month</div>
-        <div className="serif" style={{fontSize:28, lineHeight:1, marginBottom:4}}>{fmt(stats.monthly)}</div>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6}}>
+          <div style={{fontSize:10, color:'var(--ink-faint)', letterSpacing:'0.1em', textTransform:'uppercase'}}>This month</div>
+          <div style={{display:'flex', gap:2}}>
+            {CURRENCY_OPTIONS.map(([code, label]) => (
+              <button key={code} onClick={()=>setCurrency(code)} style={{
+                padding:'2px 6px', fontSize:10, borderRadius:4,
+                background: currency===code ? 'var(--ink)' : 'transparent',
+                color: currency===code ? 'var(--surface)' : 'var(--ink-faint)',
+                fontWeight: currency===code ? 600 : 400
+              }} title={label}>{SYM[code]}</button>
+            ))}
+          </div>
+        </div>
+        <div className="serif" style={{fontSize:28, lineHeight:1, marginBottom:4}}>{fmt(stats.monthly, currency)}</div>
         <div style={{fontSize:11, color:'var(--ink-soft)'}}>{stats.count} active • {stats.upcoming.length} renewing</div>
       </div>
 
@@ -756,13 +785,13 @@ const dataBtnStyle = {
 };
 
 // ---- TODAY VIEW -----------------------------------------------
-function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
+function TodayView({ subs, stats, onPick, usedToday, toggleUsed, currency }) {
   const now = new Date();
   const hour = now.getHours();
   const dayProgress = (hour * 3600 + now.getMinutes()*60 + now.getSeconds()) / 86400;
 
   const active = subs.filter(s => s.status==='active' || s.status==='trial');
-  const dailyTotal = active.reduce((a,s)=>a + toMonthly(s)/30.44, 0);
+  const dailyTotal = active.reduce((a,s)=>a + toMonthlyIn(s, currency)/30.44, 0);
   const spentSoFar = dailyTotal * dayProgress;
   const remainingToday = dailyTotal - spentSoFar;
 
@@ -770,16 +799,16 @@ function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
 
   // "用起来" list: daily cost if not used = pure waste
   const actionables = active
-    .map(s => ({...s, daily: toMonthly(s)/30.44}))
+    .map(s => ({...s, daily: toMonthlyIn(s, currency)/30.44}))
     .sort((a,b)=>b.daily-a.daily);
 
   const usedCount = active.filter(s => usedToday.has(s.id)).length;
   const wastedToday = active
     .filter(s => !usedToday.has(s.id))
-    .reduce((a,s)=>a + toMonthly(s)/30.44, 0);
+    .reduce((a,s)=>a + toMonthlyIn(s, currency)/30.44, 0);
   const savedByUsing = active
     .filter(s => usedToday.has(s.id))
-    .reduce((a,s)=>a + toMonthly(s)/30.44, 0);
+    .reduce((a,s)=>a + toMonthlyIn(s, currency)/30.44, 0);
 
   // week history mock
   const weekData = [
@@ -806,13 +835,13 @@ function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
           <div>
             <div style={{fontSize:11, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:10}}>今日订阅开销</div>
             <div style={{display:'flex', alignItems:'baseline', gap:12, marginBottom:16}}>
-              <div className="serif" style={{fontSize:88, lineHeight:0.95}}>{fmt(dailyTotal)}</div>
+              <div className="serif" style={{fontSize:88, lineHeight:0.95}}>{fmt(dailyTotal, currency)}</div>
               <div style={{fontSize:14, color:'var(--ink-soft)'}}>/ 天</div>
             </div>
             <div style={{fontSize:13, color:'var(--ink-soft)', lineHeight:1.6, maxWidth:460}}>
-              你今天醒来就已经在付 <span className="mono" style={{color:'var(--accent)', fontWeight:500}}>{fmt(dailyTotal)}</span> 订阅费。
-              现在 {String(hour).padStart(2,'0')}:{String(now.getMinutes()).padStart(2,'0')}，已摊销 <span className="mono">{fmt(spentSoFar)}</span>，
-              剩余今日还要花 <span className="mono">{fmt(remainingToday)}</span>。
+              你今天醒来就已经在付 <span className="mono" style={{color:'var(--accent)', fontWeight:500}}>{fmt(dailyTotal, currency)}</span> 订阅费。
+              现在 {String(hour).padStart(2,'0')}:{String(now.getMinutes()).padStart(2,'0')}，已摊销 <span className="mono">{fmt(spentSoFar, currency)}</span>，
+              剩余今日还要花 <span className="mono">{fmt(remainingToday, currency)}</span>。
             </div>
           </div>
 
@@ -860,11 +889,11 @@ function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:6}}>
             <div className="serif" style={{fontSize:24}}>今天用起来</div>
             <div className="mono" style={{fontSize:12, color:'var(--ink-soft)'}}>
-              {usedCount} / {active.length} · 已回本 <span style={{color:'var(--positive)', fontWeight:500}}>{fmt(savedByUsing)}</span>
+              {usedCount} / {active.length} · 已回本 <span style={{color:'var(--positive)', fontWeight:500}}>{fmt(savedByUsing, currency)}</span>
             </div>
           </div>
           <div style={{fontSize:12, color:'var(--ink-soft)', marginBottom:18}}>
-            勾掉用过的。没勾的 = 今天在浪费钱 <span className="mono" style={{color:'var(--danger)'}}>{fmt(wastedToday)}</span>
+            勾掉用过的。没勾的 = 今天在浪费钱 <span className="mono" style={{color:'var(--danger)'}}>{fmt(wastedToday, currency)}</span>
           </div>
 
           {/* Progress rail */}
@@ -911,7 +940,7 @@ function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
                   </button>
                   <div style={{textAlign:'right'}}>
                     <div className="mono" style={{fontSize:13, fontWeight:500, color: used?'var(--positive)':isWaste?'var(--danger)':'var(--ink)'}}>
-                      {fmt(s.daily)}
+                      {fmt(s.daily, currency)}
                     </div>
                     <div style={{fontSize:10, color:'var(--ink-faint)'}}>每天</div>
                   </div>
@@ -945,7 +974,7 @@ function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
                     <div style={{fontSize:13, fontWeight:500}}>{s.name}</div>
                     <div style={{fontSize:11, color:'var(--ink-faint)'}}>{s.method}</div>
                   </div>
-                  <div className="mono" style={{fontSize:14, fontWeight:500}}>{fmt(s.price)}</div>
+                  <div className="mono" style={{fontSize:14, fontWeight:500}}>{fmt(s.price, subCur(s))}</div>
                 </div>
               ))
             )}
@@ -957,10 +986,10 @@ function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
             borderLeft:'3px solid var(--danger)'
           }}>
             <div style={{fontSize:11, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:8}}>如果今天不用</div>
-            <div className="serif" style={{fontSize:40, lineHeight:1, marginBottom:6, color:'var(--danger)'}}>{fmt(wastedToday)}</div>
+            <div className="serif" style={{fontSize:40, lineHeight:1, marginBottom:6, color:'var(--danger)'}}>{fmt(wastedToday, currency)}</div>
             <div style={{fontSize:12, color:'var(--ink-soft)', lineHeight:1.6}}>
               {active.length - usedCount} 个订阅今天还没用到。
-              一个月按此速度浪费 <span className="mono" style={{color:'var(--danger)', fontWeight:500}}>{fmt(wastedToday*30)}</span>。
+              一个月按此速度浪费 <span className="mono" style={{color:'var(--danger)', fontWeight:500}}>{fmt(wastedToday*30, currency)}</span>。
             </div>
           </div>
 
@@ -1012,12 +1041,12 @@ function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
                 cursor:'pointer',
                 transition:'opacity .2s'
               }}
-              title={`${s.name}: ${fmt(s.daily)}/day`}/>
+              title={`${s.name}: ${fmt(s.daily, currency)}/day`}/>
           ))}
         </div>
         <div style={{fontSize:11, color:'var(--ink-faint)', display:'flex', justifyContent:'space-between'}}>
           <span>彩色 = 已使用 · 灰色 = 未使用</span>
-          <span className="mono">合计 {fmt(dailyTotal)}/天</span>
+          <span className="mono">合计 {fmt(dailyTotal, currency)}/天</span>
         </div>
       </div>
     </div>
@@ -1025,7 +1054,7 @@ function TodayView({ subs, stats, onPick, usedToday, toggleUsed }) {
 }
 
 // ---- OVERVIEW -----------------------------------------------
-function Overview({ subs, stats, onPick }) {
+function Overview({ subs, stats, onPick, currency }) {
   const cats = Object.entries(stats.byCat).sort((a,b)=>b[1]-a[1]);
   const catTotal = cats.reduce((a,[,v])=>a+v,0);
 
@@ -1035,22 +1064,22 @@ function Overview({ subs, stats, onPick }) {
 
       {/* Top stats row */}
       <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:1, background:'var(--line)', border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', marginBottom:32}}>
-        <StatBlock label="每月支出" value={fmt(stats.monthly)} hint="+$24.99 vs 上月" trend="up"/>
-        <StatBlock label="年化总额" value={fmt(stats.yearly)} hint={`约等于 ${(stats.yearly/1000).toFixed(1)}k`}/>
+        <StatBlock label="每月支出" value={fmt(stats.monthly, currency)} hint={`${SYM[currency]}${conv(24.99, 'USD', currency).toFixed(2)} vs 上月`} trend="up"/>
+        <StatBlock label="年化总额" value={fmt(stats.yearly, currency)} hint={`约等于 ${(stats.yearly/1000).toFixed(1)}k`}/>
         <StatBlock label="进行中" value={stats.count} hint="2 个试用中"/>
-        <StatBlock label="30天续订" value={stats.upcoming.length} hint={`共 ${fmt(stats.upcoming.reduce((a,s)=>a+s.price,0))}`} trend="neutral"/>
+        <StatBlock label="30天续订" value={stats.upcoming.length} hint={`共 ${fmt(stats.upcoming.reduce((a,s)=>a+conv(s.price, subCur(s), currency), 0), currency)}`} trend="neutral"/>
       </div>
 
       <div style={{display:'grid', gridTemplateColumns:'1.3fr 1fr', gap:24}}>
         {/* Spend by category */}
-        <Card title="按分类支出" suffix={`月度 · ${fmt(catTotal)}`}>
+        <Card title="按分类支出" suffix={`月度 · ${fmt(catTotal, currency)}`}>
           <div style={{display:'flex', height:14, borderRadius:7, overflow:'hidden', marginBottom:20}}>
             {cats.map(([c,v]) => (
               <div key={c} style={{
                 width:`${v/catTotal*100}%`,
                 background: CAT_COLOR[c] || 'var(--ink-soft)',
                 transition:'all .3s'
-              }} title={`${c}: ${fmt(v)}`}/>
+              }} title={`${c}: ${fmt(v, currency)}`}/>
             ))}
           </div>
           <div style={{display:'flex', flexDirection:'column', gap:12}}>
@@ -1059,7 +1088,7 @@ function Overview({ subs, stats, onPick }) {
                 <div style={{width:10, height:10, borderRadius:3, background:CAT_COLOR[c]}}/>
                 <div style={{fontSize:13}}>{c}</div>
                 <div className="mono" style={{fontSize:12, color:'var(--ink-soft)'}}>{((v/catTotal)*100).toFixed(1)}%</div>
-                <div className="mono" style={{fontSize:13, fontWeight:500, minWidth:70, textAlign:'right'}}>{fmt(v)}</div>
+                <div className="mono" style={{fontSize:13, fontWeight:500, minWidth:70, textAlign:'right'}}>{fmt(v, currency)}</div>
               </div>
             ))}
           </div>
@@ -1086,7 +1115,7 @@ function Overview({ subs, stats, onPick }) {
                   </div>
                   <div style={{fontSize:10, color:'var(--ink-faint)'}}>{s.next.slice(5)}</div>
                 </div>
-                <div className="mono" style={{fontSize:13, fontWeight:500, minWidth:64, textAlign:'right'}}>{fmt(s.price)}</div>
+                <div className="mono" style={{fontSize:13, fontWeight:500, minWidth:64, textAlign:'right'}}>{fmt(s.price, subCur(s))}</div>
               </button>
             ))}
           </div>
@@ -1115,7 +1144,7 @@ function Overview({ subs, stats, onPick }) {
                   </div>
                   <div className="mono" style={{fontSize:10, color:'var(--ink-soft)', marginTop:4}}>{Math.round(s.usage*100)}% 使用</div>
                 </div>
-                <div className="mono" style={{fontSize:12, fontWeight:500, color:'var(--ink-soft)'}}>{fmt(s.price)}/m</div>
+                <div className="mono" style={{fontSize:12, fontWeight:500, color:'var(--ink-soft)'}}>{fmt(conv(toMonthly(s), subCur(s), currency), currency)}/m</div>
               </button>
             ))}
             {stats.lowUsage.length===0 && <div style={{fontSize:12, color:'var(--ink-faint)', padding:'20px 0'}}>所有订阅使用率良好</div>}
@@ -1216,7 +1245,7 @@ function ListView({ subs, setSubs, onPick, filter, setFilter, query, setQuery, s
             </div>
             <div><CatPill cat={s.cat}/></div>
             <div>
-              <div className="mono" style={{fontSize:13, fontWeight:500}}>{fmt(s.price)}</div>
+              <div className="mono" style={{fontSize:13, fontWeight:500}}>{fmt(s.price, subCur(s))}</div>
               <div style={{fontSize:10, color:'var(--ink-faint)'}}>每{s.cycle==='year'?'年':'月'}</div>
             </div>
             <div>
@@ -1236,7 +1265,7 @@ function ListView({ subs, setSubs, onPick, filter, setFilter, query, setQuery, s
 }
 
 // ---- CALENDAR VIEW -----------------------------------------------
-function CalendarView({ subs, onPick }) {
+function CalendarView({ subs, onPick, currency }) {
   const [cur, setCur] = useState({year: 2026, month: 4});
   const {year, month} = cur;
   const pad = n => String(n).padStart(2,'0');
@@ -1253,7 +1282,7 @@ function CalendarView({ subs, onPick }) {
     return subs.filter(s => s.next===ymd && s.status!=='paused');
   };
 
-  const monthTotal = subs.filter(s => s.next.startsWith(mStr) && s.status!=='paused').reduce((a,s)=>a+s.price,0);
+  const monthTotal = subs.filter(s => s.next.startsWith(mStr) && s.status!=='paused').reduce((a,s)=>a+conv(s.price, subCur(s), currency),0);
 
   const prev = () => setCur(c => c.month===1 ? {year:c.year-1, month:12} : {year:c.year, month:c.month-1});
   const next = () => setCur(c => c.month===12 ? {year:c.year+1, month:1} : {year:c.year, month:c.month+1});
@@ -1271,7 +1300,7 @@ function CalendarView({ subs, onPick }) {
           <button onClick={goToday} style={{padding:'6px 16px', fontSize:13, fontWeight:500, color:'var(--ink)'}}>{year} · {cnMonths[month-1]}</button>
           <button onClick={next} style={{padding:'6px 12px', borderRadius:5, fontSize:12, color:'var(--ink-soft)'}}>›</button>
         </div>
-        <div className="mono" style={{fontSize:13, color:'var(--ink-soft)'}}>本月合计 <span style={{color:'var(--ink)', fontWeight:500}}>{fmt(monthTotal)}</span></div>
+        <div className="mono" style={{fontSize:13, color:'var(--ink-soft)'}}>本月合计 <span style={{color:'var(--ink)', fontWeight:500}}>{fmt(monthTotal, currency)}</span></div>
       </div>
 
       <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, overflow:'hidden'}}>
@@ -1308,7 +1337,7 @@ function CalendarView({ subs, onPick }) {
                           fontSize:10, alignItems:'center', textAlign:'left'
                         }}>
                           <div style={{fontWeight:500, maxWidth:70, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{s.name}</div>
-                          <div className="mono" style={{marginLeft:'auto', color:'var(--ink-soft)', fontSize:9}}>{fmt(s.price).replace('.00','')}</div>
+                          <div className="mono" style={{marginLeft:'auto', color:'var(--ink-soft)', fontSize:9}}>{fmt(s.price, subCur(s)).replace('.00','')}</div>
                         </button>
                       ))}
                       {dayS.length>3 && <div style={{fontSize:10, color:'var(--ink-faint)', paddingLeft:4}}>+{dayS.length-3} more</div>}
@@ -1325,12 +1354,12 @@ function CalendarView({ subs, onPick }) {
 }
 
 // ---- INSIGHTS VIEW -----------------------------------------------
-function InsightsView({ subs, stats }) {
+function InsightsView({ subs, stats, currency }) {
   const totalYearly = stats.yearly;
-  const aiYearly = subs.filter(s=>s.cat==='AI' && s.status!=='paused').reduce((a,s)=>a+toYearly(s),0);
-  const entYearly = subs.filter(s=>s.cat==='Entertainment' && s.status!=='paused').reduce((a,s)=>a+toYearly(s),0);
+  const aiYearly = subs.filter(s=>s.cat==='AI' && s.status!=='paused').reduce((a,s)=>a+toYearlyIn(s, currency),0);
+  const entYearly = subs.filter(s=>s.cat==='Entertainment' && s.status!=='paused').reduce((a,s)=>a+toYearlyIn(s, currency),0);
   const byMethod = {};
-  subs.filter(s=>s.status!=='paused').forEach(s => { byMethod[s.method] = (byMethod[s.method]||0) + toMonthly(s); });
+  subs.filter(s=>s.status!=='paused').forEach(s => { byMethod[s.method] = (byMethod[s.method]||0) + toMonthlyIn(s, currency); });
 
   return (
     <div style={{padding:'32px 40px', maxHeight:'100vh', overflow:'auto'}}>
@@ -1339,7 +1368,7 @@ function InsightsView({ subs, stats }) {
       {/* Big number */}
       <div style={{background:'var(--surface)', border:'1px solid var(--line)', borderRadius:12, padding:'32px 40px', marginBottom:24}}>
         <div style={{fontSize:11, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--ink-faint)', marginBottom:8}}>年度总开销</div>
-        <div className="serif" style={{fontSize:72, lineHeight:1, marginBottom:8, color:'var(--ink)'}}>{fmt(totalYearly)}</div>
+        <div className="serif" style={{fontSize:72, lineHeight:1, marginBottom:8, color:'var(--ink)'}}>{fmt(totalYearly, currency)}</div>
         <div style={{fontSize:13, color:'var(--ink-soft)', maxWidth:600}}>
           相当于 <span className="mono" style={{color:'var(--accent)'}}>{(totalYearly/30).toFixed(0)} 次</span>的星巴克，
           或 <span className="mono" style={{color:'var(--accent)'}}>{Math.floor(totalYearly/900)} 次</span>的 iPhone 更新。
@@ -1352,25 +1381,25 @@ function InsightsView({ subs, stats }) {
         {/* Recommendations */}
         <Card title="AI 建议" suffix="基于使用率">
           <div style={{display:'flex', flexDirection:'column', gap:14}}>
-            <Recommendation
+            <Recommendation currency={currency}
               kind="cancel"
               title="取消 Dropbox Plus"
               reason="年付 $119.88，使用率仅 34%。iCloud+ 2TB 已能覆盖你的存储需求。"
               save={119.88}
             />
-            <Recommendation
+            <Recommendation currency={currency}
               kind="downgrade"
               title="NYT 改为数字基础版"
               reason="当前 All Access $25/月，使用率 40%。数字版 $10/月足够。"
               save={180}
             />
-            <Recommendation
+            <Recommendation currency={currency}
               kind="bundle"
               title="考虑 ChatGPT Plus 替代 Pro"
               reason="o3 调用量不足 Pro 配额的 20%，Plus $20/月已覆盖主要使用场景。"
               save={2160}
             />
-            <Recommendation
+            <Recommendation currency={currency}
               kind="positive"
               title="Apple One Premier 已最优"
               reason="相比单独订阅 iCloud + Music + TV+ 节省 $18/月。"
@@ -1386,7 +1415,7 @@ function InsightsView({ subs, stats }) {
               <div key={m}>
                 <div style={{display:'flex', justifyContent:'space-between', marginBottom:6}}>
                   <div style={{fontSize:13}} className="mono">{m}</div>
-                  <div className="mono" style={{fontSize:13, fontWeight:500}}>{fmt(v)}</div>
+                  <div className="mono" style={{fontSize:13, fontWeight:500}}>{fmt(v, currency)}</div>
                 </div>
                 <div style={{height:6, background:'var(--line)', borderRadius:3, overflow:'hidden'}}>
                   <div style={{width:`${v/stats.monthly*100}%`, height:'100%', background:'var(--ink)'}}/>
@@ -1406,7 +1435,7 @@ function InsightsView({ subs, stats }) {
           {[1,2,3,4,5].map(y => (
             <div key={y} style={{padding:20, background:'var(--bg)', borderRadius:8, border:'1px solid var(--line-soft)'}}>
               <div style={{fontSize:11, color:'var(--ink-faint)', marginBottom:4}} className="mono">Year {y}</div>
-              <div className="serif" style={{fontSize:26, lineHeight:1, marginBottom:4}}>{fmt(totalYearly*y*(1+0.05*(y-1)))}</div>
+              <div className="serif" style={{fontSize:26, lineHeight:1, marginBottom:4}}>{fmt(totalYearly*y*(1+0.05*(y-1)), currency)}</div>
               <div style={{fontSize:10, color:'var(--ink-faint)'}}>累计 · 假设 5% 年通胀</div>
             </div>
           ))}
@@ -1417,7 +1446,7 @@ function InsightsView({ subs, stats }) {
 }
 
 // ---- DETAIL DRAWER -----------------------------------------------
-function DetailDrawer({ sub, onClose, onUpdate, onDelete }) {
+function DetailDrawer({ sub, onClose, onUpdate, onDelete, currency }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(sub);
 
@@ -1473,10 +1502,13 @@ function DetailDrawer({ sub, onClose, onUpdate, onDelete }) {
 
             <EditField label="价格">
               <div style={{display:'flex', gap:8}}>
+                <div style={{flex:'0 0 90px'}}>
+                  <SelectInput value={subCur(draft)} onChange={v=>patch('currency', v)} options={CURRENCY_OPTIONS}/>
+                </div>
                 <div style={{flex:'1 1 0', minWidth:0}}>
                   <TextInput value={draft.price} onChange={v=>patch('price', v)} type="number"/>
                 </div>
-                <div style={{flex:'0 0 140px'}}>
+                <div style={{flex:'0 0 120px'}}>
                   <SelectInput value={draft.cycle} onChange={v=>patch('cycle', v)} options={cycleOptions}/>
                 </div>
               </div>
@@ -1533,17 +1565,20 @@ function DetailDrawer({ sub, onClose, onUpdate, onDelete }) {
             <div style={{background:'var(--bg)', borderRadius:10, padding:20, marginBottom:20}}>
               <div style={{fontSize:11, color:'var(--ink-faint)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:8}}>当前费用</div>
               <div style={{display:'flex', alignItems:'baseline', gap:8}}>
-                <div className="serif" style={{fontSize:44, lineHeight:1}}>{fmt(sub.price)}</div>
+                <div className="serif" style={{fontSize:44, lineHeight:1}}>{fmt(sub.price, subCur(sub))}</div>
                 <div style={{fontSize:14, color:'var(--ink-soft)'}}>/ {sub.cycle==='year'?'年':'月'}</div>
               </div>
-              {sub.cycle==='year' && <div className="mono" style={{fontSize:11, color:'var(--ink-faint)', marginTop:4}}>≈ {fmt(sub.price/12)} / 月</div>}
+              {sub.cycle==='year' && <div className="mono" style={{fontSize:11, color:'var(--ink-faint)', marginTop:4}}>≈ {fmt(sub.price/12, subCur(sub))} / 月</div>}
+              {subCur(sub) !== currency && (
+                <div className="mono" style={{fontSize:11, color:'var(--ink-faint)', marginTop:4}}>≈ {fmt(conv(sub.price, subCur(sub), currency), currency)} {currency}</div>
+              )}
             </div>
 
             <Field label="下次扣款" value={`${sub.next} · ${daysUntil(sub.next)} 天后`}/>
             <Field label="支付方式" value={sub.method}/>
             <Field label="开始日期" value={sub.started}/>
             <Field label="已订阅" value={`${Math.floor((new Date('2026-04-22')-new Date(sub.started))/(365*86400000))} 年 ${Math.floor(((new Date('2026-04-22')-new Date(sub.started))/86400000 % 365)/30)} 个月`}/>
-            <Field label="累计支出" value={fmt(toMonthly(sub) * Math.floor((new Date('2026-04-22')-new Date(sub.started))/(30*86400000)))}/>
+            <Field label="累计支出" value={fmt(toMonthly(sub) * Math.floor((new Date('2026-04-22')-new Date(sub.started))/(30*86400000)), subCur(sub))}/>
             <Field label="分类" value={<CatPill cat={sub.cat}/>}/>
             <Field label="共享" value={sub.shared ? '是' : '否'}/>
             <Field label="状态" value={<StatusDot status={sub.status}/>}/>
@@ -1619,7 +1654,7 @@ function PillToggle({ active, onClick, label }) {
 }
 
 // ---- ADD MODAL -----------------------------------------------
-function AddModal({ onClose, onAdd, existingNames }) {
+function AddModal({ onClose, onAdd, existingNames, currency }) {
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState('all');
   const [selectedTpl, setSelectedTpl] = useState(null);
@@ -1658,11 +1693,12 @@ function AddModal({ onClose, onAdd, existingNames }) {
         {manual ? (
           <ManualStep
             prefillName={query}
+            defaultCurrency={currency}
             onBack={()=>setManual(false)}
             onClose={onClose}
             onSubmit={(form) => {
               const tpl = { name: form.name, vendor: form.vendor || form.name, cat: form.cat, color: CAT_COLOR[form.cat] || '#6b6459', icon: form.name[0] };
-              const plan = { name: form.plan, price: form.price, cycle: form.cycle };
+              const plan = { name: form.plan, price: form.price, cycle: form.cycle, currency: form.currency };
               onAdd(tpl, plan, form.method);
             }}/>
         ) : selectedTpl ? (
@@ -1794,7 +1830,7 @@ function TemplateCard({ tpl, existingNames, onPick }) {
         <div style={{fontSize:11, color:'var(--ink-faint)', display:'flex', gap:6, alignItems:'center'}}>
           <CatPill cat={tpl.cat}/>
           <span className="mono">
-            {lowPrice===highPrice ? fmt(lowPrice) : `${fmt(lowPrice)}–${fmt(highPrice)}`}/m
+            {lowPrice===highPrice ? fmt(lowPrice, 'USD') : `${fmt(lowPrice, 'USD')}–${fmt(highPrice, 'USD')}`}/m
           </span>
         </div>
       </div>
@@ -1821,7 +1857,7 @@ function TemplatePill({ tpl, existingNames, onPick }) {
   );
 }
 
-function ManualStep({ prefillName, onBack, onClose, onSubmit }) {
+function ManualStep({ prefillName, defaultCurrency='USD', onBack, onClose, onSubmit }) {
   const [f, setF] = useState({
     name: prefillName || '',
     vendor: '',
@@ -1829,6 +1865,7 @@ function ManualStep({ prefillName, onBack, onClose, onSubmit }) {
     plan: '',
     price: '',
     cycle: 'month',
+    currency: defaultCurrency,
     method: 'Visa ••4821',
     note: ''
   });
@@ -1868,10 +1905,13 @@ function ManualStep({ prefillName, onBack, onClose, onSubmit }) {
         </EditField>
         <EditField label="价格 *">
           <div style={{display:'flex', gap:8}}>
+            <div style={{flex:'0 0 90px'}}>
+              <SelectInput value={f.currency} onChange={v=>patch('currency', v)} options={CURRENCY_OPTIONS}/>
+            </div>
             <div style={{flex:'1 1 0', minWidth:0}}>
               <TextInput value={f.price} onChange={v=>patch('price', v)} type="number"/>
             </div>
-            <div style={{flex:'0 0 140px'}}>
+            <div style={{flex:'0 0 120px'}}>
               <SelectInput value={f.cycle} onChange={v=>patch('cycle', v)} options={[['month','按月'],['year','按年']]}/>
             </div>
           </div>
@@ -1948,11 +1988,11 @@ function ConfigStep({ tpl, selectedPlan, setSelectedPlan, method, setMethod, onB
                 <div>
                   <div style={{fontSize:14, fontWeight:500}}>{p.name}</div>
                   <div style={{fontSize:11, color:'var(--ink-faint)'}}>
-                    {p.cycle==='year' ? `按年付 · ≈ ${fmt(monthly)}/月` : '按月付'}
+                    {p.cycle==='year' ? `按年付 · ≈ ${fmt(monthly, 'USD')}/月` : '按月付'}
                   </div>
                 </div>
                 <div style={{textAlign:'right'}}>
-                  <div className="mono" style={{fontSize:15, fontWeight:500}}>{fmt(p.price)}</div>
+                  <div className="mono" style={{fontSize:15, fontWeight:500}}>{fmt(p.price, 'USD')}</div>
                   <div style={{fontSize:10, color:'var(--ink-faint)'}}>每{p.cycle==='year'?'年':'月'}</div>
                 </div>
               </button>
@@ -1979,7 +2019,7 @@ function ConfigStep({ tpl, selectedPlan, setSelectedPlan, method, setMethod, onB
         <div style={{fontSize:12, color:'var(--ink-soft)'}}>
           {selectedPlan ? (
             <>
-              首次扣款 <span className="mono" style={{color:'var(--ink)', fontWeight:500}}>2026-05-22</span> · <span className="mono" style={{color:'var(--accent)', fontWeight:500}}>{fmt(selectedPlan.price)}</span>
+              首次扣款 <span className="mono" style={{color:'var(--ink)', fontWeight:500}}>2026-05-22</span> · <span className="mono" style={{color:'var(--accent)', fontWeight:500}}>{fmt(selectedPlan.price, 'USD')}</span>
             </>
           ) : '请选择方案'}
         </div>
@@ -2139,7 +2179,7 @@ function Sparkline({ data, labels }) {
   );
 }
 
-function Recommendation({ kind, title, reason, save }) {
+function Recommendation({ kind, title, reason, save, currency='USD' }) {
   const colorMap = {
     cancel: 'var(--danger)',
     downgrade: 'var(--warning)',
@@ -2157,7 +2197,7 @@ function Recommendation({ kind, title, reason, save }) {
           <span style={{fontSize:10, padding:'2px 6px', background:`${color}22`, color, borderRadius:3, fontWeight:500}}>{tagMap[kind]}</span>
           <div style={{fontSize:13, fontWeight:500}}>{title}</div>
         </div>
-        {save>0 && <div className="mono" style={{fontSize:12, color:'var(--positive)', fontWeight:500}}>省 {fmt(save)}/年</div>}
+        {save>0 && <div className="mono" style={{fontSize:12, color:'var(--positive)', fontWeight:500}}>省 {fmt(conv(save, 'USD', currency), currency)}/年</div>}
       </div>
       <div style={{fontSize:12, color:'var(--ink-soft)', lineHeight:1.5}}>{reason}</div>
     </div>
