@@ -583,7 +583,7 @@ function App() {
     else next.setMonth(next.getMonth()+1);
     const nextStr = next.toISOString().slice(0,10);
     const newSub = {
-      id: Math.max(...subs.map(s=>s.id))+1,
+      id: (subs.length ? Math.max(...subs.map(s=>s.id)) : 0) + 1,
       name: tpl.name,
       vendor: tpl.vendor,
       cat: tpl.cat,
